@@ -1,0 +1,53 @@
+{
+  "run_id": "colab-tesla-t4-qwen25-coder-3b-agent-pov",
+  "date": "2026-11-11",
+  "gpu": "NVIDIA Tesla T4 (14.6 GB VRAM, Compute 7.5)",
+  "precision": "4-bit NF4 Double-Quantized QLoRA + FP16 AMP (FP32 LoRA Master Weights)",
+  "base_model": "Qwen/Qwen2.5-Coder-3B-Instruct",
+  "total_params": 3115872256,
+  "trainable_lora_params": 29933568,
+  "trainable_pct": 0.9607,
+  "total_wall_time_minutes": 19.29,
+  "stage_1_sft": {
+    "steps": 120,
+    "runtime_seconds": 812.7,
+    "initial_loss": 2.71,
+    "final_step_loss": 0.3148,
+    "best_step_loss": 0.3064,
+    "mean_train_loss": 0.8303,
+    "initial_token_accuracy": 0.5764,
+    "peak_token_accuracy": 0.9335,
+    "final_token_accuracy": 0.9302,
+    "curve": [
+      {"step": 10, "loss": 2.7100, "token_acc": 0.5764},
+      {"step": 20, "loss": 1.7960, "token_acc": 0.6580},
+      {"step": 30, "loss": 1.2410, "token_acc": 0.7494},
+      {"step": 40, "loss": 0.8717, "token_acc": 0.8192},
+      {"step": 50, "loss": 0.6259, "token_acc": 0.8742},
+      {"step": 60, "loss": 0.5446, "token_acc": 0.8836},
+      {"step": 70, "loss": 0.4337, "token_acc": 0.9089},
+      {"step": 80, "loss": 0.4098, "token_acc": 0.9104},
+      {"step": 90, "loss": 0.3573, "token_acc": 0.9221},
+      {"step": 100, "loss": 0.3520, "token_acc": 0.9244},
+      {"step": 110, "loss": 0.3064, "token_acc": 0.9335},
+      {"step": 120, "loss": 0.3148, "token_acc": 0.9302}
+    ]
+  },
+  "stage_2_dpo": {
+    "steps": 50,
+    "runtime_seconds": 256.3,
+    "initial_loss": 0.3541,
+    "final_step_loss": 0.00002011,
+    "mean_train_loss": 0.07088,
+    "initial_reward_accuracy": 0.825,
+    "final_reward_accuracy": 1.0,
+    "final_reward_margin": 13.77,
+    "curve": [
+      {"step": 10, "loss": 0.3541, "reward_acc": 0.825, "margin": 2.86},
+      {"step": 20, "loss": 0.000103, "reward_acc": 1.0, "margin": 11.39},
+      {"step": 30, "loss": 0.0002, "reward_acc": 1.0, "margin": 11.98},
+      {"step": 40, "loss": 0.0000387, "reward_acc": 1.0, "margin": 12.82},
+      {"step": 50, "loss": 0.0000201, "reward_acc": 1.0, "margin": 13.77}
+    ]
+  }
+}

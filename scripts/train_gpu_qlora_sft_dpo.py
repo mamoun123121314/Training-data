@@ -94,19 +94,19 @@ def build_sft_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]
 
 
 def build_dpo_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]:
-    """Load TRL-ready `{prompt, chosen, rejected}` strings across all 8 Agent failure taxonomies."""
-    persisted = load_persisted_xz_records("data/agent_ultra/dpo_train-*.jsonl.xz", limit=max_samples)
-    if len(persisted) < max_samples:
-        from training_data.agent_dpo import DPO_TAXONOMIES, synthesize_agent_dpo_pair
+    """Synthesize symmetric-<thought> TRL `{prompt, chosen, rejected}` strings across all 8 Agent failure taxonomies."""
+    from training_data.agent_dpo import DPO_TAXONOMIES, synthesize_agent_dpo_pair
 
-        for j in range(max_samples - len(persisted)):
-            persisted.append(synthesize_agent_dpo_pair(j % len(DPO_TAXONOMIES), j // len(DPO_TAXONOMIES), seed=seed))
+    pairs = [
+        synthesize_agent_dpo_pair(j % len(DPO_TAXONOMIES), j // len(DPO_TAXONOMIES), seed=seed)
+        for j in range(max_samples)
+    ]
 
     out: list[dict[str, str]] = []
-    for pair in persisted[:max_samples]:
+    for pair in pairs:
         prompt_str = format_chatml_messages(pair["prompt"], add_generation_prompt=True)
-        chosen_body = pair["chosen"][0]["content"].strip() + "<|im_end|>"
-        rejected_body = pair["rejected"][0]["content"].strip() + "<|im_end|>"
+        chosen_body = pair["chosen"][0]["content"].strip()
+        rejected_body = pair["rejected"][0]["content"].strip()
         out.append(
             {
                 "prompt": prompt_str,
@@ -319,6 +319,9 @@ def main() -> None:
     print(f"      Post-SFTTrainer init check: {fp32_params:,} LoRA params locked to FP32 (trl bfloat16 override neutralized).")
     sft_res = sft_trainer.train()
     print(f"      Stage 1 SFT finished! Final Training Loss: {sft_res.training_loss:.4f}")
+    sft_adapter_dir = out_dir / "stage1_sft_adapter"
+    model.save_pretrained(str(sft_adapter_dir))
+    tokenizer.save_pretrained(str(sft_adapter_dir))
 
     # Stage 2: Direct Preference Optimization (DPO)
     dpo_loss_val = None
@@ -335,10 +338,10 @@ def main() -> None:
             "per_device_train_batch_size": 1,
             "gradient_accumulation_steps": 4,
             "max_steps": args.dpo_steps,
-            "learning_rate": 5e-5,
+            "learning_rate": 8e-6,
             "lr_scheduler_type": "cosine",
             "warmup_steps": max(3, args.dpo_steps // 10),
-            "beta": 0.1,
+            "beta": 0.25,
             "logging_steps": 10,
             "fp16": use_fp16,
             "bf16": use_bf16,
@@ -364,7 +367,7 @@ def main() -> None:
             "model": model,
             "ref_model": None,  # Uses frozen base 4-bit weights by toggling PEFT adapter off! Zero extra VRAM!
             "args": dpo_args,
-            "beta": 0.1,
+            "beta": 0.25,
             "train_dataset": dpo_ds,
             "max_length": args.max_seq_len,
             "max_prompt_length": args.max_seq_len // 2,
