@@ -22,9 +22,26 @@ import random
 import struct
 from typing import Any
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+
+    _NO_GRAD = torch.no_grad
+    _MODULE_BASE = nn.Module
+except ImportError:  # pragma: no cover - allows pure-Python trajectory synthesis without torch installed
+    torch = None  # type: ignore[assignment]
+    nn = None  # type: ignore[assignment]
+    F = None  # type: ignore[assignment]
+
+    def _NO_GRAD():  # type: ignore[misc]
+        def _wrap(fn):
+            return fn
+
+        return _wrap
+
+    class _MODULE_BASE:  # type: ignore[no-redef]
+        pass
 
 from training_data.agent_dpo import DPO_TAXONOMIES, synthesize_agent_dpo_pair
 from training_data.agent_ultra import AgentUltraDataset
@@ -65,7 +82,7 @@ class AgentPOVConfig:
         return asdict(self)
 
 
-class RMSNorm(nn.Module):
+class RMSNorm(_MODULE_BASE):
     def __init__(self, dim: int, eps: float = 1e-5) -> None:
         super().__init__()
         self.eps = eps
@@ -95,7 +112,7 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     return torch.stack((out_even, out_odd), dim=-1).flatten(-2)
 
 
-class GroupedQueryAttention(nn.Module):
+class GroupedQueryAttention(_MODULE_BASE):
     def __init__(self, cfg: AgentPOVConfig) -> None:
         super().__init__()
         assert cfg.d_model % cfg.n_heads == 0
@@ -135,7 +152,7 @@ class GroupedQueryAttention(nn.Module):
         return self.wo(out)
 
 
-class SwiGLUMLP(nn.Module):
+class SwiGLUMLP(_MODULE_BASE):
     def __init__(self, cfg: AgentPOVConfig) -> None:
         super().__init__()
         self.w_gate = nn.Linear(cfg.d_model, cfg.d_ff, bias=False)
@@ -146,7 +163,7 @@ class SwiGLUMLP(nn.Module):
         return self.w_down(F.silu(self.w_gate(x)) * self.w_up(x))
 
 
-class TransformerBlock(nn.Module):
+class TransformerBlock(_MODULE_BASE):
     def __init__(self, cfg: AgentPOVConfig) -> None:
         super().__init__()
         self.attn_norm = RMSNorm(cfg.d_model, cfg.norm_eps)
@@ -160,7 +177,7 @@ class TransformerBlock(nn.Module):
         return x
 
 
-class AgentPOVTransformer(nn.Module):
+class AgentPOVTransformer(_MODULE_BASE):
     """Llama-3/Qwen-style Decoder-Only Transformer trained on Autonomous Agent POV trajectories."""
 
     def __init__(self, cfg: AgentPOVConfig) -> None:
@@ -196,7 +213,7 @@ class AgentPOVTransformer(nn.Module):
         x = self.norm(x)
         return self.lm_head(x)
 
-    @torch.no_grad()
+    @_NO_GRAD()
     def generate(
         self,
         prompt_ids: list[int],

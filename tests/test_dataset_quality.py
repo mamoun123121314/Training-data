@@ -169,6 +169,47 @@ class TestDatasetQuality(unittest.TestCase):
         ]
         self.assertEqual(batch_a, batch_b)
 
+    def test_apex_intelligence_and_trainer_curriculum(self) -> None:
+        import ast
+        import re
+        from training_data.apex_intelligence import synthesize_apex_dpo_pair, synthesize_apex_sft_trajectory
+
+        for i in range(36):
+            rec = synthesize_apex_sft_trajectory(i, seed=42)
+            self.assertGreaterEqual(len(rec["messages"]), 3)
+            for msg in rec["messages"]:
+                if msg["role"] == "assistant":
+                    self.assertNotIn("From my POV", msg["content"])
+                    self.assertNotIn("# TODO", msg["content"])
+                    for blk in re.findall(r"```python\s*(.*?)```", msg["content"], flags=re.DOTALL):
+                        ast.parse(blk)
+
+        for j in range(16):
+            pair = synthesize_apex_dpo_pair(j, seed=42)
+            chosen_txt = pair["chosen"][0]["content"]
+            self.assertIn("<thought>", chosen_txt)
+            self.assertNotIn("# TODO", chosen_txt)
+            for blk in re.findall(r"```python\s*(.*?)```", chosen_txt, flags=re.DOTALL):
+                ast.parse(blk)
+
+        import sys
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[1]
+        if str(repo_root / "scripts") not in sys.path:
+            sys.path.insert(0, str(repo_root / "scripts"))
+        import train_gpu_qlora_sft_dpo as trainer_mod
+
+        sft_rows = trainer_mod.build_sft_examples(100, seed=42)
+        self.assertEqual(len(sft_rows), 100)
+        self.assertTrue(all("<|im_start|>assistant\n" in r["text"] for r in sft_rows))
+
+        dpo_rows = trainer_mod.build_dpo_examples(80, seed=42)
+        self.assertEqual(len(dpo_rows), 80)
+        chosen_tc = sum("<tool_call>" in r["chosen"] for r in dpo_rows)
+        rejected_tc = sum("<tool_call>" in r["rejected"] for r in dpo_rows)
+        self.assertGreaterEqual(chosen_tc, rejected_tc)
+
 
 if __name__ == "__main__":
     unittest.main()
