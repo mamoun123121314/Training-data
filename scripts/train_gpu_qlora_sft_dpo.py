@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Production 2-Stage Autonomous Agent GPU Trainer (4-bit QLoRA `SFT` + `DPO`).
+Production 2-Stage Autonomous Agent GPU Trainer v2 (4-bit QLoRA `Assistant-Masked SFT` + `Calibrated Symmetric DPO`).
 
-Engineered specifically for Google Colab T4 (15 GB VRAM, Turing FP16) as well as L4 / A100 (BF16):
-  - Default model: `Qwen/Qwen2.5-Coder-3B-Instruct` (open Apache-2.0, zero HF login/token required, ~4.8 GB VRAM in 4-bit NF4)
-  - Stage 1 (`SFT`): Trains on first-person Coding-Agent POV trajectories + persisted `data/agent_ultra/sft_train-*.jsonl.xz` (42 Agent tracks)
-  - Stage 2 (`DPO`): Aligns the LoRA policy (`ref_model=None` -> PEFT adapter toggle, zero extra VRAM!) on `data/agent_ultra/dpo_train-*.jsonl.xz` (8 failure taxonomies)
-  - `trl`-version agnostic (`0.8` through `0.29+` via `inspect.signature`)
-  - Runs live post-training Agent POV `<thought>` + `<tool_call>` evaluation and auto-backups checkpoints to Google Drive if mounted
+Engineered for Google Colab T4 (15 GB VRAM, Turing FP16) & L4 / A100 (BF16):
+  - Assistant-Only ChatML Loss Collator: Masks 100% of system/user/tool-observation tokens (`-100`) and trains
+    strictly on `<|im_start|>assistant ... <|im_end|>` spans (including `<|im_end|>` stop emission!).
+  - Calibrated Symmetric-<thought> DPO (`lr=8e-6`, `beta=0.25`): Preserves crisp `<tool_call>{...}</tool_call>`
+    JSON emission without over-rewarding `<thought>` tags or suppressing `<|im_end|>`.
+  - Neutralizes `trl >= 1.x`'s internal `bfloat16` adapter override on Turing T4 GPUs.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ import sys
 import time
 from typing import Any
 
-# Ensure local `src/` is importable when run directly from repo checkout
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
@@ -31,16 +30,12 @@ if str(SRC_DIR) not in sys.path:
 
 
 def format_chatml_messages(messages: list[dict[str, str]], add_generation_prompt: bool = False) -> str:
-    """
-    Deterministic ChatML serializer compatible with Qwen2.5 / ChatML models and safe for `role='tool'` turns
-    (avoids Jinja `tool_call_id` template incompatibilities across `transformers` versions).
-    """
+    """Deterministic ChatML serializer compatible with Qwen2.5 and `role='tool'` observations."""
     chunks: list[str] = []
     for msg in messages:
         role = msg["role"]
         content = msg["content"].strip()
         if role == "tool":
-            # Represent tool observations cleanly in ChatML user/tool observation frame
             if not content.startswith("<tool_response>"):
                 content = f"<tool_response>\n{content}\n</tool_response>"
             chunks.append(f"<|im_start|>user\n{content}<|im_end|>")
@@ -49,6 +44,71 @@ def format_chatml_messages(messages: list[dict[str, str]], add_generation_prompt
     if add_generation_prompt:
         chunks.append("<|im_start|>assistant\n")
     return "\n".join(chunks)
+
+
+class AssistantOnlyChatMLCollator:
+    """
+    Data collator that masks all `system`, `user`, and `<tool_response>` tokens (`labels = -100`)
+    and trains strictly on `<|im_start|>assistant\\n ... <|im_end|>` completions (including `<|im_end|>`).
+    """
+
+    def __init__(self, tokenizer: Any) -> None:
+        self.tokenizer = tokenizer
+        self.pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+        self.im_start_id = tokenizer.convert_tokens_to_ids("<|im_start|>")
+        self.im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+        asst_toks = tokenizer.encode("assistant\n", add_special_tokens=False)
+        self.asst_header_ids = asst_toks
+
+    def _mask_single(self, ids: list[int]) -> list[int]:
+        labels = [-100] * len(ids)
+        n = len(ids)
+        hdr_len = len(self.asst_header_ids)
+        i = 0
+        while i < n:
+            if (
+                ids[i] == self.im_start_id
+                and i + 1 + hdr_len <= n
+                and ids[i + 1 : i + 1 + hdr_len] == self.asst_header_ids
+            ):
+                start_content = i + 1 + hdr_len
+                j = start_content
+                while j < n and ids[j] != self.im_end_id:
+                    labels[j] = ids[j]
+                    j += 1
+                if j < n and ids[j] == self.im_end_id:
+                    labels[j] = ids[j]  # Explicitly train model to stop at <|im_end|>!
+                    i = j + 1
+                    continue
+                break
+            i += 1
+        # Fallback if template tokenization differed unexpectedly: ensure at least non-empty labels
+        if all(x == -100 for x in labels):
+            return [tok if tok != self.pad_id else -100 for tok in ids]
+        return labels
+
+    def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
+        import torch
+
+        id_lists = [list(f["input_ids"]) for f in features]
+        max_len = max(len(x) for x in id_lists)
+
+        batch_ids = torch.full((len(id_lists), max_len), self.pad_id, dtype=torch.long)
+        batch_mask = torch.zeros((len(id_lists), max_len), dtype=torch.long)
+        batch_labels = torch.full((len(id_lists), max_len), -100, dtype=torch.long)
+
+        for row_idx, ids in enumerate(id_lists):
+            masked_lbl = self._mask_single(ids)
+            L = len(ids)
+            batch_ids[row_idx, :L] = torch.tensor(ids, dtype=torch.long)
+            batch_mask[row_idx, :L] = 1
+            batch_labels[row_idx, :L] = torch.tensor(masked_lbl, dtype=torch.long)
+
+        return {
+            "input_ids": batch_ids,
+            "attention_mask": batch_mask,
+            "labels": batch_labels,
+        }
 
 
 def load_persisted_xz_records(glob_pattern: str, limit: int) -> list[dict[str, Any]]:
@@ -66,7 +126,7 @@ def load_persisted_xz_records(glob_pattern: str, limit: int) -> list[dict[str, A
 
 
 def build_sft_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]:
-    """Combine first-person Agent POV trajectories (40%) + 42-track AgentUltra SFT shards (60%)."""
+    """Combine first-person Agent POV trajectories (50%) + 42-track AgentUltra SFT shards (50%)."""
     from training_data.pov_model import synthesize_first_person_pov_trajectory
 
     pov_count = max_samples // 2
@@ -130,7 +190,7 @@ def enforce_amp_safe_dtypes(model: Any, compute_dtype: Any) -> tuple[int, int]:
     """
     Ensure PyTorch GradScaler compatibility on Turing FP16 GPUs (e.g. Tesla T4 Compute 7.5):
       - Every trainable parameter (`requires_grad=True`) is strictly `torch.float32`
-      - Every frozen floating-point parameter & buffer uses `compute_dtype` (eliminates BFloat16 from Qwen config)
+      - Every frozen floating-point parameter & buffer uses `compute_dtype`
     """
     import torch
 
@@ -148,7 +208,6 @@ def enforce_amp_safe_dtypes(model: Any, compute_dtype: Any) -> tuple[int, int]:
         if b.is_floating_point() and b.dtype != compute_dtype:
             b.data = b.data.to(compute_dtype)
 
-    # Walk all config objects (base model + PEFT wrapper) so Trainer/SFTTrainer never sees bfloat16
     seen_cfgs: set[int] = set()
     for mod in model.modules():
         cfg = getattr(mod, "config", None)
@@ -163,14 +222,28 @@ def enforce_amp_safe_dtypes(model: Any, compute_dtype: Any) -> tuple[int, int]:
     return fp32_trainable, cast_frozen
 
 
+def get_stop_token_ids(tokenizer: Any) -> list[int]:
+    stop_ids: list[int] = []
+    if tokenizer.eos_token_id is not None:
+        if isinstance(tokenizer.eos_token_id, list):
+            stop_ids.extend(tokenizer.eos_token_id)
+        else:
+            stop_ids.append(int(tokenizer.eos_token_id))
+    for tok_str in ("<|im_end|>", "<|endoftext|>"):
+        tid = tokenizer.convert_tokens_to_ids(tok_str)
+        if isinstance(tid, int) and tid >= 0 and tid != tokenizer.unk_token_id and tid not in stop_ids:
+            stop_ids.append(tid)
+    return stop_ids
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="2-Stage QLoRA Agent POV SFT + DPO GPU Trainer")
+    parser = argparse.ArgumentParser(description="2-Stage QLoRA Agent POV SFT + DPO GPU Trainer (v2)")
     parser.add_argument("--base-model", type=str, default="Qwen/Qwen2.5-Coder-3B-Instruct")
     parser.add_argument("--output-dir", type=str, default="out/qwen25-agent-pov-lora")
-    parser.add_argument("--sft-samples", type=int, default=1200)
-    parser.add_argument("--dpo-samples", type=int, default=400)
-    parser.add_argument("--sft-steps", type=int, default=120)
-    parser.add_argument("--dpo-steps", type=int, default=50)
+    parser.add_argument("--sft-samples", type=int, default=900)
+    parser.add_argument("--dpo-samples", type=int, default=240)
+    parser.add_argument("--sft-steps", type=int, default=80)
+    parser.add_argument("--dpo-steps", type=int, default=20)
     parser.add_argument("--max-seq-len", type=int, default=1024)
     parser.add_argument("--lora-r", type=int, default=16)
     parser.add_argument("--skip-dpo", action="store_true")
@@ -199,7 +272,7 @@ def main() -> None:
     print(f" GPU Detected : {gpu_name} ({vram_gb:.1f} GB VRAM, Compute {major_cc}.{minor_cc})")
     print(f" Precision    : {'BF16' if use_bf16 else 'FP16 (Turing T4 safe mode)'} + 4-bit NF4 QLoRA")
     print(f" Base Model   : {args.base_model}")
-    print(f" Pipeline     : Stage 1 SFT ({args.sft_steps} steps) -> Stage 2 DPO ({0 if args.skip_dpo else args.dpo_steps} steps)")
+    print(f" Pipeline v2  : Assistant-Masked SFT ({args.sft_steps} steps) -> Symmetric DPO ({0 if args.skip_dpo else args.dpo_steps} steps)")
     print("=" * 76)
 
     out_dir = Path(args.output_dir)
@@ -207,7 +280,7 @@ def main() -> None:
 
     print("\n[1/5] Preparing Agent POV + AgentUltra SFT & DPO datasets...")
     sft_rows = build_sft_examples(args.sft_samples)
-    val_rows = build_sft_examples(80, seed=999)
+    val_rows = build_sft_examples(64, seed=999)
     sft_train_ds = datasets.Dataset.from_list(sft_rows)
     sft_val_ds = datasets.Dataset.from_list(val_rows)
     print(f"      Loaded {len(sft_train_ds):,} SFT train + {len(sft_val_ds):,} SFT val trajectories.")
@@ -217,6 +290,7 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
+    stop_ids = get_stop_token_ids(tokenizer)
 
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -261,20 +335,21 @@ def main() -> None:
     )
     peft_kwargs = filter_kwargs(get_peft_model, {"autocast_adapter_dtype": False})
     model = get_peft_model(model, peft_config, **peft_kwargs)
-    fp32_params, _ = enforce_amp_safe_dtypes(model, compute_dtype)
+    enforce_amp_safe_dtypes(model, compute_dtype)
     model.print_trainable_parameters()
 
-    # Stage 1: Supervised Fine-Tuning (SFT)
-    print(f"\n[3/5] Running Stage 1 — QLoRA Supervised Fine-Tuning ({args.sft_steps} steps)...")
+    # Stage 1: Assistant-Masked Supervised Fine-Tuning (SFT)
+    print(f"\n[3/5] Running Stage 1 — Assistant-Masked QLoRA SFT ({args.sft_steps} steps)...")
     SFTConfigCls = getattr(trl, "SFTConfig", None)
     SFTTrainerCls = trl.SFTTrainer
+    assistant_collator = AssistantOnlyChatMLCollator(tokenizer)
 
     sft_cfg_kwargs: dict[str, Any] = {
         "output_dir": str(out_dir / "stage1_sft"),
         "per_device_train_batch_size": 2,
         "gradient_accumulation_steps": 4,
         "max_steps": args.sft_steps,
-        "learning_rate": 2e-4,
+        "learning_rate": 1.5e-4,
         "lr_scheduler_type": "cosine",
         "warmup_steps": max(5, args.sft_steps // 10),
         "logging_steps": 10,
@@ -303,6 +378,7 @@ def main() -> None:
     sft_trainer_kwargs: dict[str, Any] = {
         "model": model,
         "args": sft_args,
+        "data_collator": assistant_collator,
         "train_dataset": sft_train_ds,
         "eval_dataset": sft_val_ds,
         "dataset_text_field": "text",
@@ -313,20 +389,18 @@ def main() -> None:
     else:
         sft_trainer_kwargs["tokenizer"] = tokenizer
     sft_trainer = SFTTrainerCls(**filter_kwargs(SFTTrainerCls.__init__, sft_trainer_kwargs))
-    # CRITICAL: trl >= 1.x casts quantized LoRA params to bfloat16 inside SFTTrainer.__init__ (line 959),
-    # which crashes PyTorch FP16 GradScaler on Turing T4 GPUs. Restore FP32 trainable LoRA dtypes here!
     fp32_params, _ = enforce_amp_safe_dtypes(sft_trainer.model, compute_dtype)
-    print(f"      Post-SFTTrainer init check: {fp32_params:,} LoRA params locked to FP32 (trl bfloat16 override neutralized).")
+    print(f"      Post-SFTTrainer init check: {fp32_params:,} LoRA params locked to FP32 (assistant-only masking active).")
     sft_res = sft_trainer.train()
     print(f"      Stage 1 SFT finished! Final Training Loss: {sft_res.training_loss:.4f}")
+
     sft_adapter_dir = out_dir / "stage1_sft_adapter"
     model.save_pretrained(str(sft_adapter_dir))
     tokenizer.save_pretrained(str(sft_adapter_dir))
 
-    # Stage 2: Direct Preference Optimization (DPO)
-    dpo_loss_val = None
+    # Stage 2: Gentle Symmetric-<thought> DPO
     if not args.skip_dpo and args.dpo_steps > 0:
-        print(f"\n[4/5] Running Stage 2 — Reference-Free PEFT Adapter DPO ({args.dpo_steps} steps across 8 failure modes)...")
+        print(f"\n[4/5] Running Stage 2 — Calibrated Symmetric-<thought> DPO ({args.dpo_steps} steps, lr=5e-6, beta=0.3)...")
         dpo_rows = build_dpo_examples(args.dpo_samples)
         dpo_ds = datasets.Dataset.from_list(dpo_rows)
 
@@ -338,11 +412,11 @@ def main() -> None:
             "per_device_train_batch_size": 1,
             "gradient_accumulation_steps": 4,
             "max_steps": args.dpo_steps,
-            "learning_rate": 8e-6,
+            "learning_rate": 5e-6,
             "lr_scheduler_type": "cosine",
-            "warmup_steps": max(3, args.dpo_steps // 10),
-            "beta": 0.25,
-            "logging_steps": 10,
+            "warmup_steps": 3,
+            "beta": 0.3,
+            "logging_steps": 5,
             "fp16": use_fp16,
             "bf16": use_bf16,
             "optim": "paged_adamw_8bit",
@@ -365,9 +439,9 @@ def main() -> None:
         dpo_sig = inspect.signature(DPOTrainerCls.__init__).parameters
         dpo_trainer_kwargs: dict[str, Any] = {
             "model": model,
-            "ref_model": None,  # Uses frozen base 4-bit weights by toggling PEFT adapter off! Zero extra VRAM!
+            "ref_model": None,
             "args": dpo_args,
-            "beta": 0.25,
+            "beta": 0.3,
             "train_dataset": dpo_ds,
             "max_length": args.max_seq_len,
             "max_prompt_length": args.max_seq_len // 2,
@@ -377,20 +451,16 @@ def main() -> None:
         else:
             dpo_trainer_kwargs["tokenizer"] = tokenizer
         dpo_trainer = DPOTrainerCls(**filter_kwargs(DPOTrainerCls.__init__, dpo_trainer_kwargs))
-        # CRITICAL: trl >= 1.x also casts quantized LoRA params to bfloat16 inside DPOTrainer.__init__ (line 781).
         fp32_dpo_params, _ = enforce_amp_safe_dtypes(dpo_trainer.model, compute_dtype)
         print(f"      Post-DPOTrainer init check: {fp32_dpo_params:,} LoRA params locked to FP32.")
         dpo_res = dpo_trainer.train()
-        dpo_loss_val = float(dpo_res.training_loss)
-        print(f"      Stage 2 DPO finished! Final DPO Loss: {dpo_loss_val:.4f}")
+        print(f"      Stage 2 DPO finished! Final DPO Loss: {float(dpo_res.training_loss):.4f}")
 
-    # Save final adapter + tokenizer
     final_adapter_dir = out_dir / "final_lora_adapter"
     model.save_pretrained(str(final_adapter_dir))
     tokenizer.save_pretrained(str(final_adapter_dir))
     print(f"\nSaved fine-tuned LoRA adapter -> {final_adapter_dir}")
 
-    # Auto-backup to Google Drive if mounted in Colab
     gdrive_root = Path("/content/drive/MyDrive")
     if gdrive_root.exists():
         gdrive_dest = gdrive_root / "Training-data-AgentPOV-LoRA"
@@ -399,7 +469,6 @@ def main() -> None:
         shutil.copytree(final_adapter_dir, gdrive_dest)
         print(f"Backed up fine-tuned LoRA adapter to Google Drive -> {gdrive_dest}")
 
-    # Live Agent POV Evaluation on Unseen Prompts
     print("\n[5/5] Testing Fine-Tuned Agent POV Model on Unseen Scenarios...")
     from training_data.schema import build_agent_system, format_tool_call, format_tool_response
 
@@ -409,7 +478,7 @@ def main() -> None:
 
     test_cases = [
         (
-            "1. Missing ID Discovery (Must call `list_clusters`, never invent IDs)",
+            "1. Missing ID Discovery (Must emit `<thought>` + `<tool_call>` for `list_clusters`)",
             [
                 {
                     "role": "system",
@@ -451,7 +520,7 @@ def main() -> None:
             ],
         ),
         (
-            "3. Read-Before-Edit Codebase Discipline",
+            "3. Read-Before-Edit Codebase Discipline (Must call `read_file` first)",
             [
                 {
                     "role": "system",
@@ -474,17 +543,20 @@ def main() -> None:
         with torch.no_grad():
             gen_ids = model.generate(
                 **inputs,
-                max_new_tokens=220,
+                max_new_tokens=200,
                 do_sample=False,
                 pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id,
+                eos_token_id=stop_ids,
             )
         new_tokens = gen_ids[0][inputs["input_ids"].shape[1] :]
-        reply = tokenizer.decode(new_tokens, skip_special_tokens=False).replace("<|im_end|>", "").strip()
+        reply = tokenizer.decode(new_tokens, skip_special_tokens=False)
+        for st in ("<|im_end|>", "<|endoftext|>"):
+            if st in reply:
+                reply = reply.split(st, 1)[0]
         print("\n" + "-" * 72)
         print(f"TEST {title}")
         print("-" * 72)
-        print(reply)
+        print(reply.strip())
 
     elapsed_min = (time.perf_counter() - t0) / 60.0
     print("\n" + "=" * 76)
