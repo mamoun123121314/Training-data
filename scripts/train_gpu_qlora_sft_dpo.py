@@ -415,7 +415,7 @@ def main() -> None:
     stop_ids = get_stop_token_ids(tokenizer)
 
     load_kwargs: dict[str, Any] = {
-        "dtype": compute_dtype,
+        "torch_dtype": compute_dtype,
         "device_map": "auto",
         "trust_remote_code": True,
     }
@@ -426,20 +426,32 @@ def main() -> None:
             bnb_4bit_use_double_quant=True,
             bnb_4bit_compute_dtype=compute_dtype,
         )
-    try:
-        model = AutoModelForCausalLM.from_pretrained(args.base_model, **load_kwargs)
-    except TypeError:
-        load_kwargs["torch_dtype"] = load_kwargs.pop("dtype")
-        model = AutoModelForCausalLM.from_pretrained(args.base_model, **load_kwargs)
+    model = AutoModelForCausalLM.from_pretrained(args.base_model, **load_kwargs)
     model.config.use_cache = False
-    prep_kwargs = filter_kwargs(
-        prepare_model_for_kbit_training,
-        {
-            "use_gradient_checkpointing": True,
-            "gradient_checkpointing_kwargs": {"use_reentrant": False},
-        },
-    )
-    model = prepare_model_for_kbit_training(model, **prep_kwargs)
+    if is_spark_4b:
+        # Spark's custom MLP casts hidden states to gate_proj.weight.dtype. Its 4-bit
+        # packed weights are uint8 (breaking eager attention), so keep the base FP16
+        # and avoid PEFT k-bit prep, which upcasts frozen base weights to FP32.
+        for param in model.parameters():
+            param.requires_grad_(False)
+        if hasattr(model, "gradient_checkpointing_enable"):
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
+        else:
+            embed_layer = model.get_input_embeddings()
+            embed_layer.register_forward_hook(
+                lambda _module, _inputs, output: output.requires_grad_(True)
+            )
+    else:
+        prep_kwargs = filter_kwargs(
+            prepare_model_for_kbit_training,
+            {
+                "use_gradient_checkpointing": True,
+                "gradient_checkpointing_kwargs": {"use_reentrant": False},
+            },
+        )
+        model = prepare_model_for_kbit_training(model, **prep_kwargs)
     enforce_amp_safe_dtypes(model, compute_dtype)
 
     lora_kwargs = filter_kwargs(
