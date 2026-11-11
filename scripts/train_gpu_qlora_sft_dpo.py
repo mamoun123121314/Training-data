@@ -154,19 +154,45 @@ def build_sft_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]
 
 
 def build_dpo_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]:
-    """Synthesize symmetric-<thought> TRL `{prompt, chosen, rejected}` strings across all 8 Agent failure taxonomies."""
-    from training_data.agent_dpo import DPO_TAXONOMIES, synthesize_agent_dpo_pair
+    """
+    Synthesize modality-balanced TRL `{prompt, chosen, rejected}` strings so `chosen` and `rejected`
+    have matching `<tool_call>` presence (prevents DPO from biasing `<|im_end|>` over `<tool_call>`!).
+    """
+    from training_data.agent_dpo import synthesize_agent_dpo_pair
+    from training_data.schema import build_agent_system, format_tool_call
 
+    # Taxonomies (0, 2, 5, 7) compare good <tool_call> vs bad <tool_call>; taxonomy 6 compares redacted text vs leaked text.
+    balanced_taxonomies = (0, 2, 5, 6, 7)
     pairs = [
-        synthesize_agent_dpo_pair(j % len(DPO_TAXONOMIES), j // len(DPO_TAXONOMIES), seed=seed)
+        synthesize_agent_dpo_pair(balanced_taxonomies[j % len(balanced_taxonomies)], j // len(balanced_taxonomies), seed=seed)
         for j in range(max_samples)
     ]
 
+    # Also add counter-balancing pairs where `chosen` calls a verification tool vs `rejected` hallucinating plain text!
+    rng = random.Random(seed)
     out: list[dict[str, str]] = []
-    for pair in pairs:
-        prompt_str = format_chatml_messages(pair["prompt"], add_generation_prompt=True)
-        chosen_body = pair["chosen"][0]["content"].strip()
-        rejected_body = pair["rejected"][0]["content"].strip()
+    for idx, pair in enumerate(pairs):
+        if idx % 5 == 4:
+            svc = f"payments-svc-{idx}"
+            tools = [{"name": "list_clusters", "description": "List cluster IDs in an environment.", "parameters": {"type": "object", "properties": {"env": {"type": "string"}}, "required": ["env"]}}]
+            p_msgs = [
+                {"role": "system", "content": build_agent_system(rng, tools)},
+                {"role": "user", "content": f"Check cluster IDs for `{svc}` in `staging`."},
+            ]
+            prompt_str = format_chatml_messages(p_msgs, add_generation_prompt=True)
+            chosen_body = format_tool_call(
+                "list_clusters",
+                {"env": "staging"},
+                thought="<thought>\nQuery live `staging` clusters via `list_clusters` rather than guessing.\n</thought>",
+            )
+            rejected_body = (
+                "<thought>\nAnswer from memory without calling `list_clusters`.\n</thought>\n\n"
+                f"`{svc}` runs on cluster `cls-staging-001`."
+            )
+        else:
+            prompt_str = format_chatml_messages(pair["prompt"], add_generation_prompt=True)
+            chosen_body = pair["chosen"][0]["content"].strip()
+            rejected_body = pair["rejected"][0]["content"].strip()
         out.append(
             {
                 "prompt": prompt_str,
@@ -174,7 +200,6 @@ def build_dpo_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]
                 "rejected": rejected_body,
             }
         )
-    rng = random.Random(seed)
     rng.shuffle(out)
     return out
 

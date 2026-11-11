@@ -86,7 +86,7 @@ def format_chatml(messages: list[dict[str, str]]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Multi-turn live agent sandbox for fine-tuned Qwen2.5 LoRA")
     parser.add_argument("--base-model", type=str, default="Qwen/Qwen2.5-Coder-3B-Instruct")
-    parser.add_argument("--adapter-dir", type=str, default="out/qwen25-agent-pov-lora/final_lora_adapter")
+    parser.add_argument("--adapter-dir", type=str, default="out/qwen25-agent-pov-lora/stage1_sft_adapter")
     parser.add_argument("--prompt", type=str, default="Update the batch limit in `src/api/server.py` to `250`.")
     parser.add_argument("--max-turns", type=int, default=3)
     args = parser.parse_args()
@@ -140,7 +140,7 @@ def main() -> None:
         {"role": "user", "content": args.prompt},
     ]
 
-    tc_re = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+    tc_re = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 
     print("=" * 74)
     print("USER PROMPT:", args.prompt)
