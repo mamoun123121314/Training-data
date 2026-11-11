@@ -224,17 +224,22 @@ def main() -> None:
         bnb_4bit_use_double_quant=True,
         bnb_4bit_compute_dtype=compute_dtype,
     )
-    from_pretrained_kwargs: dict[str, Any] = {
-        "quantization_config": bnb_config,
-        "device_map": "auto",
-        "trust_remote_code": True,
-    }
-    if "dtype" in inspect.signature(AutoModelForCausalLM.from_pretrained).parameters:
-        from_pretrained_kwargs["dtype"] = compute_dtype
-    else:
-        from_pretrained_kwargs["torch_dtype"] = compute_dtype
-
-    model = AutoModelForCausalLM.from_pretrained(args.base_model, **from_pretrained_kwargs)
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.base_model,
+            quantization_config=bnb_config,
+            dtype=compute_dtype,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+    except TypeError:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.base_model,
+            quantization_config=bnb_config,
+            torch_dtype=compute_dtype,
+            device_map="auto",
+            trust_remote_code=True,
+        )
     model.config.use_cache = False
     prep_kwargs = filter_kwargs(
         prepare_model_for_kbit_training,
@@ -258,7 +263,6 @@ def main() -> None:
     model = get_peft_model(model, peft_config, **peft_kwargs)
     fp32_params, _ = enforce_amp_safe_dtypes(model, compute_dtype)
     model.print_trainable_parameters()
-    print(f"      Verified AMP-safe dtypes: {fp32_params:,} trainable params in FP32 (0 BFloat16 params on T4).")
 
     # Stage 1: Supervised Fine-Tuning (SFT)
     print(f"\n[3/5] Running Stage 1 — QLoRA Supervised Fine-Tuning ({args.sft_steps} steps)...")
@@ -282,6 +286,8 @@ def main() -> None:
         "dataset_text_field": "text",
         "max_seq_length": args.max_seq_len,
         "max_length": args.max_seq_len,
+        "packing": False,
+        "padding_free": False,
         "gradient_checkpointing": True,
         "gradient_checkpointing_kwargs": {"use_reentrant": False},
     }
@@ -307,6 +313,10 @@ def main() -> None:
     else:
         sft_trainer_kwargs["tokenizer"] = tokenizer
     sft_trainer = SFTTrainerCls(**filter_kwargs(SFTTrainerCls.__init__, sft_trainer_kwargs))
+    # CRITICAL: trl >= 1.x casts quantized LoRA params to bfloat16 inside SFTTrainer.__init__ (line 959),
+    # which crashes PyTorch FP16 GradScaler on Turing T4 GPUs. Restore FP32 trainable LoRA dtypes here!
+    fp32_params, _ = enforce_amp_safe_dtypes(sft_trainer.model, compute_dtype)
+    print(f"      Post-SFTTrainer init check: {fp32_params:,} LoRA params locked to FP32 (trl bfloat16 override neutralized).")
     sft_res = sft_trainer.train()
     print(f"      Stage 1 SFT finished! Final Training Loss: {sft_res.training_loss:.4f}")
 
@@ -337,6 +347,7 @@ def main() -> None:
             "report_to": "none",
             "max_length": args.max_seq_len,
             "max_prompt_length": args.max_seq_len // 2,
+            "padding_free": False,
             "gradient_checkpointing": True,
             "gradient_checkpointing_kwargs": {"use_reentrant": False},
             "remove_unused_columns": False,
@@ -363,6 +374,9 @@ def main() -> None:
         else:
             dpo_trainer_kwargs["tokenizer"] = tokenizer
         dpo_trainer = DPOTrainerCls(**filter_kwargs(DPOTrainerCls.__init__, dpo_trainer_kwargs))
+        # CRITICAL: trl >= 1.x also casts quantized LoRA params to bfloat16 inside DPOTrainer.__init__ (line 781).
+        fp32_dpo_params, _ = enforce_amp_safe_dtypes(dpo_trainer.model, compute_dtype)
+        print(f"      Post-DPOTrainer init check: {fp32_dpo_params:,} LoRA params locked to FP32.")
         dpo_res = dpo_trainer.train()
         dpo_loss_val = float(dpo_res.training_loss)
         print(f"      Stage 2 DPO finished! Final DPO Loss: {dpo_loss_val:.4f}")
