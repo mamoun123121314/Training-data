@@ -264,6 +264,10 @@ def resolve_adapter_and_base(adapter_arg: str, base_arg: str | None) -> tuple[Pa
     candidates = [
         Path(adapter_arg),
         REPO_ROOT / adapter_arg,
+        Path("out/spark-x26-agent-lora/final_lora_adapter"),
+        REPO_ROOT / "out/spark-x26-agent-lora/final_lora_adapter",
+        Path("out/spark-x26-agent-lora/stage1_sft_adapter"),
+        REPO_ROOT / "out/spark-x26-agent-lora/stage1_sft_adapter",
         Path("out/qwen25-agent-pov-lora/final_lora_adapter"),
         REPO_ROOT / "out/qwen25-agent-pov-lora/final_lora_adapter",
         Path("out/qwen25-agent-pov-lora/stage1_sft_adapter"),
