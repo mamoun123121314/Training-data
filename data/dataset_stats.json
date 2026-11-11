@@ -1,0 +1,221 @@
+{
+  "dataset_name": "Training-data: Million-Scale Coding, Ethical Security & Autonomous Agent SFT Suite",
+  "version": "2.0.0",
+  "language": "en",
+  "format": "ChatML / OpenAI Messages (.jsonl.xz LZMA2 shards + plain .jsonl preview)",
+  "seed": 42,
+  "total_records": 1250000,
+  "num_categories": 50,
+  "splits": {
+    "train": 1150000,
+    "validation": 50000,
+    "test": 50000
+  },
+  "storage": {
+    "total_uncompressed_bytes": 1803351090,
+    "total_uncompressed_mb": 1803.35,
+    "total_uncompressed_gb": 1.803,
+    "total_compressed_bytes": 62838264,
+    "total_compressed_mb": 62.84,
+    "compression_ratio": 28.7,
+    "preview_plain_jsonl_bytes": 2162199
+  },
+  "quality_assurance": {
+    "validation_pass_rate": 1.0,
+    "unique_user_prompts_rate": 1.0,
+    "unique_conversations_rate": 1.0,
+    "duplicates_rejected_during_synthesis": 27600,
+    "generation_seconds": 172.13
+  },
+  "domain_distribution": {
+    "coding": 425000,
+    "ethical_security": 400000,
+    "agent_use": 425000
+  },
+  "difficulty_distribution": {
+    "easy": 173694,
+    "medium": 689064,
+    "hard": 387242
+  },
+  "style_distribution": {
+    "step_by_step": 416743,
+    "direct": 433257,
+    "multi_turn": 25000,
+    "agent_trajectory": 375000
+  },
+  "quality_check_distribution": {
+    "ast_and_solver_verified": 275000,
+    "sqlite_executed": 25000,
+    "syntax_and_pattern_verified": 75000,
+    "config_structure_verified": 50000,
+    "shell_and_git_verified": 25000,
+    "ast_and_cwe_verified": 125000,
+    "cvss31_exact_math": 25000,
+    "yaml_detection_verified": 25000,
+    "dfir_ground_truth_verified": 25000,
+    "ipaddress_verified": 50000,
+    "json_and_policy_verified": 50000,
+    "architecture_controls_verified": 25000,
+    "ast_and_policy_verified": 25000,
+    "safety_boundary_verified": 25000,
+    "tool_schema_verified": 400000,
+    "json_block_verified": 25000
+  },
+  "message_count_distribution": {
+    "3": 850000,
+    "5": 137500,
+    "6": 25000,
+    "7": 175000,
+    "9": 62500
+  },
+  "category_distribution": {
+    "algo_data_structures": 25000,
+    "bug_diagnosis_and_fix": 25000,
+    "sql_query_and_optimization": 25000,
+    "api_backend_engineering": 25000,
+    "refactoring_clean_code": 25000,
+    "testing_property_edge_cases": 25000,
+    "typescript_modern_js": 25000,
+    "systems_concurrency_perf": 25000,
+    "data_pipelines_parsing": 25000,
+    "devops_ci_containers": 25000,
+    "git_cli_shell_engineering": 25000,
+    "multi_turn_code_review": 25000,
+    "go_concurrency_and_services": 25000,
+    "rust_memory_and_error_handling": 25000,
+    "regex_and_input_validation": 25000,
+    "serialization_schema_migrations": 25000,
+    "observability_opentelemetry_metrics": 25000,
+    "secure_code_remediation_web": 25000,
+    "auth_crypto_jwt_security": 25000,
+    "cvss_triage_and_vuln_reporting": 25000,
+    "detection_engineering_sigma_semgrep": 25000,
+    "log_forensics_incident_response": 25000,
+    "network_acl_firewall_analysis": 25000,
+    "cloud_k8s_container_hardening": 25000,
+    "threat_modeling_stride_arch": 25000,
+    "authorized_pentest_scoping_methodology": 25000,
+    "opa_rego_policy_as_code": 25000,
+    "security_safety_boundaries_and_redirection": 25000,
+    "ssrf_xxe_deserialization_deep_dive": 25000,
+    "api_rate_limiting_and_graphql_security": 25000,
+    "linux_systemd_and_host_hardening": 25000,
+    "secrets_management_and_ci_supply_chain": 25000,
+    "web_security_headers_and_csp": 25000,
+    "single_tool_precision_calling": 25000,
+    "parallel_and_chained_tool_use": 25000,
+    "agent_error_recovery_and_retry": 25000,
+    "code_repo_navigation_agent": 25000,
+    "security_audit_agent_workflow": 25000,
+    "missing_params_clarification_agent": 25000,
+    "rag_citation_and_conflict_resolution": 25000,
+    "structured_output_and_planning": 25000,
+    "sql_database_exploration_agent": 25000,
+    "devops_incident_triage_agent": 25000,
+    "prompt_injection_resistant_agent": 25000,
+    "sandbox_python_interpreter_agent": 25000,
+    "multi_agent_handoff_and_state_tracking": 25000,
+    "parallel_multi_tool_fanout": 25000,
+    "multi_turn_user_agent_collaboration": 25000,
+    "context_budget_and_pagination_agent": 25000,
+    "guardrail_policy_check_agent": 25000
+  },
+  "files": [
+    {
+      "split": "train",
+      "file": "train-00000-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165930055,
+      "compressed_bytes": 5781232,
+      "sha256": "29b022a797af0c030eb8c8513be22b45c5a00743e346b7c643404c366855cf7a"
+    },
+    {
+      "split": "train",
+      "file": "train-00001-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165838924,
+      "compressed_bytes": 5782680,
+      "sha256": "0e8a26acc6d84aa68c9065e5385f7f96c39d91f98fe8f7a0c47b7de05bd96ba8"
+    },
+    {
+      "split": "train",
+      "file": "train-00002-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165888316,
+      "compressed_bytes": 5779412,
+      "sha256": "10416cc688896e327a05fe86b82422d71faf200dab9e60ec00ab7d0fc992ffe0"
+    },
+    {
+      "split": "train",
+      "file": "train-00003-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165945666,
+      "compressed_bytes": 5775352,
+      "sha256": "d559aa3d59cd0567fc1011183d2b4fc6e2519bd76031afe1a3d47afd2cb6a1c8"
+    },
+    {
+      "split": "train",
+      "file": "train-00004-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165864786,
+      "compressed_bytes": 5774736,
+      "sha256": "150bbe33b223eb4bc9c6616c98c8d03808609d9819f5dcf6cbb46c9b390944f3"
+    },
+    {
+      "split": "train",
+      "file": "train-00005-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165962799,
+      "compressed_bytes": 5780164,
+      "sha256": "4231d19d070936e83d3e2a37b29250f4c7b9ecdf6f2e0ebff5248ccfcfe7ca5c"
+    },
+    {
+      "split": "train",
+      "file": "train-00006-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165976362,
+      "compressed_bytes": 5785524,
+      "sha256": "a655d2b4569f2eaf6b7711bf762065832271745d5600ad181a7c5d4049f13c7b"
+    },
+    {
+      "split": "train",
+      "file": "train-00007-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165888151,
+      "compressed_bytes": 5779784,
+      "sha256": "b2b7f68469f51bd492fb8dc9b79e6f47457fbde28fb0f736c1fd1060c6d4fcdd"
+    },
+    {
+      "split": "train",
+      "file": "train-00008-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165883120,
+      "compressed_bytes": 5778740,
+      "sha256": "f7fbe30669cae5d303c2e3acd21e7f114e64f44597baa3517f129945e1d68a3d"
+    },
+    {
+      "split": "train",
+      "file": "train-00009-of-00010.jsonl.xz",
+      "records": 115000,
+      "uncompressed_bytes": 165905976,
+      "compressed_bytes": 5772952,
+      "sha256": "ac86d9a9834478695f9e46af5e18aaf9c1eed942a55c981cb6c96ed6d59d9ed4"
+    },
+    {
+      "split": "validation",
+      "file": "validation.jsonl.xz",
+      "records": 50000,
+      "uncompressed_bytes": 72150205,
+      "compressed_bytes": 2525168,
+      "sha256": "abcecb5f414095ea1b4ea9ee4855f61ce4571716c8eba1fe407ab5e5b3b15d3c"
+    },
+    {
+      "split": "test",
+      "file": "test.jsonl.xz",
+      "records": 50000,
+      "uncompressed_bytes": 72116730,
+      "compressed_bytes": 2522520,
+      "sha256": "9ebeaab6f8b848db1fb1db952376cc300f54a5dc0d0b646324d71d920402cce6"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "training-data-forge"
+version = "5.0.0"
+description = "Multi-Billion Solver-Verified Autonomous Agent SFT, Agent DPO Preference, Coding & Ethical Security Training Suite (75 categories, 42 Agent tracks, 1.90M Git-embedded + 2.15B O(1) Bijective Engine)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Training-data Maintainers" }
+]
+keywords = [
+  "agents",
+  "agent-fine-tuning",
+  "tool-calling",
+  "mcp",
+  "swe-agent",
+  "dpo",
+  "orpo",
+  "prm",
+  "sft",
+  "chatml",
+  "coding",
+  "security"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

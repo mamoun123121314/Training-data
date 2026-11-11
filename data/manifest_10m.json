@@ -1,0 +1,302 @@
+{
+  "dataset_name": "Training-data: 10-Million-Scale Coding, Ethical Security & Autonomous Agent SFT Suite",
+  "version": "3.0.0",
+  "language": "en",
+  "format": "ChatML / OpenAI Messages (.jsonl.xz LZMA2 shards + streaming API)",
+  "seed": 42,
+  "total_records": 10000000,
+  "num_categories": 50,
+  "splits": {
+    "train": 9500000,
+    "validation": 250000,
+    "test": 250000
+  },
+  "storage": {
+    "total_uncompressed_bytes": 14465325295,
+    "total_uncompressed_mb": 14465.33,
+    "total_uncompressed_gb": 14.465,
+    "total_compressed_bytes": 412346432,
+    "total_compressed_mb": 412.35,
+    "compression_ratio": 35.08,
+    "preview_plain_jsonl_bytes": 2167032
+  },
+  "quality_assurance": {
+    "validation_pass_rate": 1.0,
+    "unique_user_prompts_rate": 1.0,
+    "unique_conversations_rate": 1.0,
+    "cross_category_collisions": 0,
+    "duplicates_rejected_during_synthesis": 112823,
+    "generation_seconds": 1124.94
+  },
+  "domain_distribution": {
+    "coding": 3400000,
+    "ethical_security": 3200000,
+    "agent_use": 3400000
+  },
+  "difficulty_distribution": {
+    "easy": 1385782,
+    "medium": 5479302,
+    "hard": 3134916
+  },
+  "style_distribution": {
+    "step_by_step": 3333704,
+    "direct": 3466296,
+    "multi_turn": 200000,
+    "agent_trajectory": 3000000
+  },
+  "quality_check_distribution": {
+    "ast_and_solver_verified": 2200000,
+    "sqlite_executed": 200000,
+    "syntax_and_pattern_verified": 600000,
+    "config_structure_verified": 400000,
+    "shell_and_git_verified": 200000,
+    "ast_and_cwe_verified": 1000000,
+    "cvss31_exact_math": 200000,
+    "yaml_detection_verified": 200000,
+    "dfir_ground_truth_verified": 200000,
+    "ipaddress_verified": 400000,
+    "json_and_policy_verified": 400000,
+    "architecture_controls_verified": 200000,
+    "ast_and_policy_verified": 200000,
+    "safety_boundary_verified": 200000,
+    "tool_schema_verified": 3200000,
+    "json_block_verified": 200000
+  },
+  "message_count_distribution": {
+    "3": 6800000,
+    "5": 1100000,
+    "6": 200000,
+    "7": 1400000,
+    "9": 500000
+  },
+  "category_distribution": {
+    "algo_data_structures": 200000,
+    "bug_diagnosis_and_fix": 200000,
+    "sql_query_and_optimization": 200000,
+    "api_backend_engineering": 200000,
+    "refactoring_clean_code": 200000,
+    "testing_property_edge_cases": 200000,
+    "typescript_modern_js": 200000,
+    "systems_concurrency_perf": 200000,
+    "data_pipelines_parsing": 200000,
+    "devops_ci_containers": 200000,
+    "git_cli_shell_engineering": 200000,
+    "multi_turn_code_review": 200000,
+    "go_concurrency_and_services": 200000,
+    "rust_memory_and_error_handling": 200000,
+    "regex_and_input_validation": 200000,
+    "serialization_schema_migrations": 200000,
+    "observability_opentelemetry_metrics": 200000,
+    "secure_code_remediation_web": 200000,
+    "auth_crypto_jwt_security": 200000,
+    "cvss_triage_and_vuln_reporting": 200000,
+    "detection_engineering_sigma_semgrep": 200000,
+    "log_forensics_incident_response": 200000,
+    "network_acl_firewall_analysis": 200000,
+    "cloud_k8s_container_hardening": 200000,
+    "threat_modeling_stride_arch": 200000,
+    "authorized_pentest_scoping_methodology": 200000,
+    "opa_rego_policy_as_code": 200000,
+    "security_safety_boundaries_and_redirection": 200000,
+    "ssrf_xxe_deserialization_deep_dive": 200000,
+    "api_rate_limiting_and_graphql_security": 200000,
+    "linux_systemd_and_host_hardening": 200000,
+    "secrets_management_and_ci_supply_chain": 200000,
+    "web_security_headers_and_csp": 200000,
+    "single_tool_precision_calling": 200000,
+    "parallel_and_chained_tool_use": 200000,
+    "agent_error_recovery_and_retry": 200000,
+    "code_repo_navigation_agent": 200000,
+    "security_audit_agent_workflow": 200000,
+    "missing_params_clarification_agent": 200000,
+    "rag_citation_and_conflict_resolution": 200000,
+    "structured_output_and_planning": 200000,
+    "sql_database_exploration_agent": 200000,
+    "devops_incident_triage_agent": 200000,
+    "prompt_injection_resistant_agent": 200000,
+    "sandbox_python_interpreter_agent": 200000,
+    "multi_agent_handoff_and_state_tracking": 200000,
+    "parallel_multi_tool_fanout": 200000,
+    "multi_turn_user_agent_collaboration": 200000,
+    "context_budget_and_pagination_agent": 200000,
+    "guardrail_policy_check_agent": 200000
+  },
+  "files": [
+    {
+      "split": "train",
+      "file": "train-00000-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687205622,
+      "compressed_bytes": 19571688,
+      "sha256": "386a88ab45ca09b829aff390be94d8f8e8d2b46731ac8365681f9616d45f4e65"
+    },
+    {
+      "split": "train",
+      "file": "train-00001-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687082048,
+      "compressed_bytes": 19572892,
+      "sha256": "b050de98b67f73e3293084e58c0969ffb685151524154e881216772a0ec3845f"
+    },
+    {
+      "split": "train",
+      "file": "train-00002-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687191106,
+      "compressed_bytes": 19571032,
+      "sha256": "50b2b3b57e46bb13a601930d69e488099340c9c2e055a8b778dd0eba4c50bda6"
+    },
+    {
+      "split": "train",
+      "file": "train-00003-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687034769,
+      "compressed_bytes": 19563680,
+      "sha256": "bc224e4ccf0c9b5b27dba24a0bb367e2d671172a15e905b212a745abae8da818"
+    },
+    {
+      "split": "train",
+      "file": "train-00004-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687153892,
+      "compressed_bytes": 19589432,
+      "sha256": "9ba2077bce6541bdbd65e1934a7de54e94858f2c9d1dc5853e57b05561a4e99b"
+    },
+    {
+      "split": "train",
+      "file": "train-00005-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687187767,
+      "compressed_bytes": 19581172,
+      "sha256": "871b07a45f10272766228f9ad493d17598d2944acbfd105f886dbe7af0c50dcd"
+    },
+    {
+      "split": "train",
+      "file": "train-00006-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687175124,
+      "compressed_bytes": 19563516,
+      "sha256": "c97b3d1ab1722258816afaacb710f575d2dca32a3d6fd21b3e47e2f7efe7c9d9"
+    },
+    {
+      "split": "train",
+      "file": "train-00007-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687150154,
+      "compressed_bytes": 19563140,
+      "sha256": "c52b8caa9fdcc0ad7b4fd7a12e1940a862f3fc8dc8fa2014f045bf1e936aa315"
+    },
+    {
+      "split": "train",
+      "file": "train-00008-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687158344,
+      "compressed_bytes": 19567412,
+      "sha256": "5800187e476e1ed64835f81c64a882824cb36f7f2187b8535a31dfcf4650ce1a"
+    },
+    {
+      "split": "train",
+      "file": "train-00009-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687113492,
+      "compressed_bytes": 19589312,
+      "sha256": "6ad8af2de5eb07de6ab49cdc0c8750abc78c3bbd8a07ae6734d7436201d2005f"
+    },
+    {
+      "split": "train",
+      "file": "train-00010-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687052339,
+      "compressed_bytes": 19564216,
+      "sha256": "627ac000533ebfa6f74759084ad323b5f8944600647fbfb4512573228d7e3df5"
+    },
+    {
+      "split": "train",
+      "file": "train-00011-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687060222,
+      "compressed_bytes": 19568244,
+      "sha256": "88ecc8adf32667cb81ecace3f194998c24422f3e38fe5da05e2586894e69c1ad"
+    },
+    {
+      "split": "train",
+      "file": "train-00012-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687045104,
+      "compressed_bytes": 19570724,
+      "sha256": "2dc2c1c00f152f5f5a1b41ee87ca0c93c4e34b8d9ea6513721a2638b8c5f99cc"
+    },
+    {
+      "split": "train",
+      "file": "train-00013-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687076270,
+      "compressed_bytes": 19564152,
+      "sha256": "04f86938d528fcffa9cec06f71e3b44eaeb7346df9cd9144bbc5b9244239e806"
+    },
+    {
+      "split": "train",
+      "file": "train-00014-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 686940711,
+      "compressed_bytes": 19553424,
+      "sha256": "2004ac3cdf27b8840b371b58eb8f9177f68b175758d57ea771942cbd4a1c5b6c"
+    },
+    {
+      "split": "train",
+      "file": "train-00015-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687136701,
+      "compressed_bytes": 19553632,
+      "sha256": "4af39de2a6dae0c20beed5eb13ebc9af61fad84f16d0dd1d327098165ab0e9dc"
+    },
+    {
+      "split": "train",
+      "file": "train-00016-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 686903455,
+      "compressed_bytes": 19560112,
+      "sha256": "8377b90e5f0f7abde1e8003ab4e8d8edc85b5f818a7d4b7089691cc2c12cc153"
+    },
+    {
+      "split": "train",
+      "file": "train-00017-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687101904,
+      "compressed_bytes": 19595960,
+      "sha256": "fc9466725b09124309455ee4bde9541ad72c723fae55b9e1c95b2ede95e870de"
+    },
+    {
+      "split": "train",
+      "file": "train-00018-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687173375,
+      "compressed_bytes": 19563876,
+      "sha256": "7db7831eaa8896e2f36ad0f3572b694e07b8399761b3ae139e02e2e9261d6a23"
+    },
+    {
+      "split": "train",
+      "file": "train-00019-of-00020.jsonl.xz",
+      "records": 475000,
+      "uncompressed_bytes": 687187206,
+      "compressed_bytes": 19558088,
+      "sha256": "f2a0522c76b4bf77cc669ff37c8bf37fd477af87e1d44210c142bc2f65d99c41"
+    },
+    {
+      "split": "validation",
+      "file": "validation.jsonl.xz",
+      "records": 250000,
+      "uncompressed_bytes": 361572248,
+      "compressed_bytes": 10471492,
+      "sha256": "538d72ec3a26375bc6a38a0bcc5d7816258fa35a5679dfc198749a3619dd6df9"
+    },
+    {
+      "split": "test",
+      "file": "test.jsonl.xz",
+      "records": 250000,
+      "uncompressed_bytes": 361623442,
+      "compressed_bytes": 10489236,
+      "sha256": "b020d0e8d8032c3e15a7dc9377e37702193196a441c92391ab1f2dccac649cae"
+    }
+  ]
+}

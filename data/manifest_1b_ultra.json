@@ -1,0 +1,264 @@
+{
+  "dataset_name": "Training-data: 1,000,000,000 (One Billion) Bijective Ultra-Reasoning & SFT Suite",
+  "version": "4.0.0",
+  "language": "en",
+  "format": "ChatML / OpenAI Messages + <thought> Ultra Reasoning (.jsonl.xz shards + O(1) Bijective Engine)",
+  "seed": 42,
+  "total_virtual_and_addressable_records": 1000000000,
+  "num_categories": 50,
+  "per_category_records": 20000000,
+  "splits": {
+    "train": {
+      "records": 990000000,
+      "total_shards": 10000,
+      "records_per_shard": 99000
+    },
+    "validation": {
+      "records": 5000000,
+      "total_shards": 50,
+      "records_per_shard": 100000
+    },
+    "test": {
+      "records": 5000000,
+      "total_shards": 50,
+      "records_per_shard": 100000
+    }
+  },
+  "bijective_engine": {
+    "permutation": "6-round Cycle-Walking Balanced Feistel Network (SplitMix64 PRF)",
+    "random_access_complexity": "O(1) time (~0.12 ms/record), O(1) RAM (0 bytes hash state)",
+    "cross_split_leakage": 0.0,
+    "unique_prompts_across_1b": 1000000000
+  },
+  "full_1b_storage_telemetry": {
+    "measured_avg_uncompressed_bytes_per_record": 1833.94,
+    "measured_avg_compressed_bytes_per_record": 94.83,
+    "measured_compression_ratio": 19.34,
+    "projected_1b_uncompressed_tb": 1.834,
+    "projected_1b_uncompressed_gb": 1833.94,
+    "projected_1b_compressed_xz_gb": 94.83
+  },
+  "domain_distribution_1b": {
+    "coding": 340000000,
+    "ethical_security": 320000000,
+    "agent_use": 340000000
+  },
+  "category_distribution_1b": {
+    "algo_data_structures": 20000000,
+    "bug_diagnosis_and_fix": 20000000,
+    "sql_query_and_optimization": 20000000,
+    "api_backend_engineering": 20000000,
+    "refactoring_clean_code": 20000000,
+    "testing_property_edge_cases": 20000000,
+    "typescript_modern_js": 20000000,
+    "systems_concurrency_perf": 20000000,
+    "data_pipelines_parsing": 20000000,
+    "devops_ci_containers": 20000000,
+    "git_cli_shell_engineering": 20000000,
+    "multi_turn_code_review": 20000000,
+    "go_concurrency_and_services": 20000000,
+    "rust_memory_and_error_handling": 20000000,
+    "regex_and_input_validation": 20000000,
+    "serialization_schema_migrations": 20000000,
+    "observability_opentelemetry_metrics": 20000000,
+    "secure_code_remediation_web": 20000000,
+    "auth_crypto_jwt_security": 20000000,
+    "cvss_triage_and_vuln_reporting": 20000000,
+    "detection_engineering_sigma_semgrep": 20000000,
+    "log_forensics_incident_response": 20000000,
+    "network_acl_firewall_analysis": 20000000,
+    "cloud_k8s_container_hardening": 20000000,
+    "threat_modeling_stride_arch": 20000000,
+    "authorized_pentest_scoping_methodology": 20000000,
+    "opa_rego_policy_as_code": 20000000,
+    "security_safety_boundaries_and_redirection": 20000000,
+    "ssrf_xxe_deserialization_deep_dive": 20000000,
+    "api_rate_limiting_and_graphql_security": 20000000,
+    "linux_systemd_and_host_hardening": 20000000,
+    "secrets_management_and_ci_supply_chain": 20000000,
+    "web_security_headers_and_csp": 20000000,
+    "single_tool_precision_calling": 20000000,
+    "parallel_and_chained_tool_use": 20000000,
+    "agent_error_recovery_and_retry": 20000000,
+    "code_repo_navigation_agent": 20000000,
+    "security_audit_agent_workflow": 20000000,
+    "missing_params_clarification_agent": 20000000,
+    "rag_citation_and_conflict_resolution": 20000000,
+    "structured_output_and_planning": 20000000,
+    "sql_database_exploration_agent": 20000000,
+    "devops_incident_triage_agent": 20000000,
+    "prompt_injection_resistant_agent": 20000000,
+    "sandbox_python_interpreter_agent": 20000000,
+    "multi_agent_handoff_and_state_tracking": 20000000,
+    "parallel_multi_tool_fanout": 20000000,
+    "multi_turn_user_agent_collaboration": 20000000,
+    "context_budget_and_pagination_agent": 20000000,
+    "guardrail_policy_check_agent": 20000000
+  },
+  "materialized_shard_slice": {
+    "output_dir": "/home/user/Training-data/out/dataset-1b-ultra",
+    "shards_materialized": 12,
+    "records_materialized": 1190000,
+    "uncompressed_bytes": 2182383374,
+    "compressed_bytes": 112845984,
+    "materialization_seconds": 161.92,
+    "files": [
+      {
+        "split": "train",
+        "shard_id": 0,
+        "file": "train-00000-of-10000.jsonl.xz",
+        "index_range": [
+          0,
+          99000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181479516,
+        "compressed_bytes": 9457460,
+        "sha256": "a574e9d970007da593b7aaa540670c3a6d32ff3abd037fc016ee74a0950add68"
+      },
+      {
+        "split": "train",
+        "shard_id": 1,
+        "file": "train-00001-of-10000.jsonl.xz",
+        "index_range": [
+          99000,
+          198000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181571029,
+        "compressed_bytes": 9452836,
+        "sha256": "5aa1b67df74623b4f78ab053f050089cf212aeb313f34e4e5930b8353a3e2f4c"
+      },
+      {
+        "split": "train",
+        "shard_id": 2,
+        "file": "train-00002-of-10000.jsonl.xz",
+        "index_range": [
+          198000,
+          297000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181669162,
+        "compressed_bytes": 9465592,
+        "sha256": "513f6415e794c85843c14ba5a3d20c5e78d1d8613081a8ba5e8c903e02cc3c32"
+      },
+      {
+        "split": "train",
+        "shard_id": 3,
+        "file": "train-00003-of-10000.jsonl.xz",
+        "index_range": [
+          297000,
+          396000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181547139,
+        "compressed_bytes": 9459776,
+        "sha256": "20fc171d94436ef3e9803451ccd7085da8511431a28c492ef5fef357f4fe4e5b"
+      },
+      {
+        "split": "train",
+        "shard_id": 4,
+        "file": "train-00004-of-10000.jsonl.xz",
+        "index_range": [
+          396000,
+          495000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181688827,
+        "compressed_bytes": 9459148,
+        "sha256": "45c03e0a6c6fb45eca983c93db87692113075c9ddb21a99c9b8fff7f035b3f97"
+      },
+      {
+        "split": "train",
+        "shard_id": 5,
+        "file": "train-00005-of-10000.jsonl.xz",
+        "index_range": [
+          495000,
+          594000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181459211,
+        "compressed_bytes": 9447088,
+        "sha256": "e13d3f6b5d03a7b2a792b1ff3b9a14f5ecb57301a8b34095f416ae95c6cc91d2"
+      },
+      {
+        "split": "train",
+        "shard_id": 6,
+        "file": "train-00006-of-10000.jsonl.xz",
+        "index_range": [
+          594000,
+          693000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181417135,
+        "compressed_bytes": 9449240,
+        "sha256": "242487e782bb9ae60791677882b5419c9cd5f701b2bf43da34f0730dadcb221c"
+      },
+      {
+        "split": "train",
+        "shard_id": 7,
+        "file": "train-00007-of-10000.jsonl.xz",
+        "index_range": [
+          693000,
+          792000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181493280,
+        "compressed_bytes": 9455740,
+        "sha256": "a8880b403c93b40f39a527b244633e39a413bb12c44484326c359e26635cf1a1"
+      },
+      {
+        "split": "train",
+        "shard_id": 8,
+        "file": "train-00008-of-10000.jsonl.xz",
+        "index_range": [
+          792000,
+          891000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181330833,
+        "compressed_bytes": 9453092,
+        "sha256": "91bc21a1fc6dae6c5ea32c5a1d44ce53d87ede1c22945de5d9668aa8dc5aab37"
+      },
+      {
+        "split": "train",
+        "shard_id": 9,
+        "file": "train-00009-of-10000.jsonl.xz",
+        "index_range": [
+          891000,
+          990000
+        ],
+        "records": 99000,
+        "uncompressed_bytes": 181545229,
+        "compressed_bytes": 9465212,
+        "sha256": "cfb9b6925fc7b2e08a86e0dcb588fbb30323709beac19bc190e8d87a51b60d8e"
+      },
+      {
+        "split": "validation",
+        "shard_id": 0,
+        "file": "validation-00000-of-00050.jsonl.xz",
+        "index_range": [
+          0,
+          100000
+        ],
+        "records": 100000,
+        "uncompressed_bytes": 183722384,
+        "compressed_bytes": 9140472,
+        "sha256": "e7f7891f17ca5403007c32c7d4ebbd2aaece102322b84f9f96cedb7e556374c2"
+      },
+      {
+        "split": "test",
+        "shard_id": 0,
+        "file": "test-00000-of-00050.jsonl.xz",
+        "index_range": [
+          0,
+          100000
+        ],
+        "records": 100000,
+        "uncompressed_bytes": 183459629,
+        "compressed_bytes": 9140328,
+        "sha256": "5347e3736aaa4b0fbbe10761655d34189a577124492e6696f6006cae41835a74"
+      }
+    ]
+  }
+}
