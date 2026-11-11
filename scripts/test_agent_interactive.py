@@ -281,7 +281,7 @@ def resolve_adapter_and_base(adapter_arg: str, base_arg: str | None) -> tuple[Pa
         cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
         detected_base = cfg.get("base_model_name_or_path")
     if not detected_base:
-        detected_base = "Qwen/Qwen2.5-Coder-7B-Instruct"
+        detected_base = "XHToken/Spark-X2.6-4B"
     return adapter_path, detected_base
 
 

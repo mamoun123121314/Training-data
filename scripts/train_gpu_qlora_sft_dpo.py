@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Production 2-Stage Apex Autonomous Agent GPU Trainer v3 (`Qwen2.5-Coder-7B` + `rsLoRA r=32` + `NEFTune` + `Apex DPO`).
+Production 2-Stage Apex Autonomous Agent GPU Trainer (`XHToken/Spark-X2.6-4B` + `rsLoRA` + `NEFTune` + `Apex DPO`).
 
-Engineered to outperform general 8B–12B models (`Llama-3.1-8B`, `Mistral-Nemo-12B`) while fitting
-cleanly inside a single Google Colab Tesla T4 (15 GB VRAM, Turing FP16) or L4 / A100 (BF16):
-  - Backbone Upgrade: Defaults to `Qwen/Qwen2.5-Coder-7B-Instruct` in 4-bit NF4 double-quantized QLoRA
-    (with `--fast-3b` option for `Qwen/Qwen2.5-Coder-3B-Instruct`), auto-scaling micro-batch & sequence
-    lengths to guarantee zero OOM on 15 GB T4 GPUs.
+Designed for a single Google Colab Tesla T4 (15 GB VRAM, Turing FP16) or L4 / A100 (BF16):
+  - Backbone: defaults to the official, non-abliterated `XHToken/Spark-X2.6-4B` Transformers checkpoint
+    with 4-bit NF4 double-quantized QLoRA; `--base-model` can select another Transformers-compatible model.
+    The optional `--fast-3b` remains a Qwen2.5-Coder-3B fallback. Verify compatibility and run the included
+    quality checks before relying on any custom architecture or checkpoint.
   - Rank-Stabilized LoRA (`use_rslora=True`, `r=32`, `alpha=64`) + `NEFTune` (`noise_alpha=5.0`):
     Unlocks ~80.7M FP32 adapter parameters across all 7 attention + SwiGLU projections without gradient collapse.
   - 4-Engine High-IQ SFT Mix:
@@ -334,10 +334,10 @@ def get_stop_token_ids(tokenizer: Any) -> list[int]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Apex 2-Stage QLoRA 7B SFT + DPO GPU Trainer (v3)")
-    parser.add_argument("--base-model", type=str, default="Qwen/Qwen2.5-Coder-7B-Instruct")
-    parser.add_argument("--fast-3b", action="store_true", help="Use lighter Qwen2.5-Coder-3B-Instruct backbone")
-    parser.add_argument("--output-dir", type=str, default="out/qwen25-agent-pov-lora")
+    parser = argparse.ArgumentParser(description="Apex 2-Stage QLoRA Spark-X2.6-4B SFT + DPO GPU Trainer")
+    parser.add_argument("--base-model", type=str, default="XHToken/Spark-X2.6-4B")
+    parser.add_argument("--fast-3b", action="store_true", help="Use Qwen2.5-Coder-3B-Instruct as a lighter fallback")
+    parser.add_argument("--output-dir", type=str, default="out/spark-x26-agent-lora")
     parser.add_argument("--sft-samples", type=int, default=1200)
     parser.add_argument("--dpo-samples", type=int, default=320)
     parser.add_argument("--sft-steps", type=int, default=100)
@@ -369,12 +369,18 @@ def main() -> None:
     use_fp16 = not use_bf16
     compute_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
-    is_7b_plus = any(tag in args.base_model.lower() for tag in ("7b", "8b", "9b", "12b", "14b"))
+    model_tag = args.base_model.lower()
+    is_7b_plus = any(tag in model_tag for tag in ("7b", "8b", "9b", "12b", "14b"))
+    is_spark_4b = "spark-x2.6-4b" in model_tag
     low_vram_gpu = vram_gb < 20.0
-    sft_batch_size = 1 if (is_7b_plus and low_vram_gpu) else 2
+    # Leave headroom for Spark's custom implementation on 15 GB T4 cards.
+    constrained = low_vram_gpu and (is_7b_plus or is_spark_4b)
+    sft_batch_size = 1 if constrained else 2
     sft_grad_accum = 8 if sft_batch_size == 1 else 4
-    sft_seq_len = min(args.max_seq_len, 1280) if (is_7b_plus and low_vram_gpu) else args.max_seq_len
-    dpo_seq_len = min(sft_seq_len, 1024) if (is_7b_plus and low_vram_gpu) else sft_seq_len
+    sft_seq_len = min(args.max_seq_len, 1024) if (low_vram_gpu and is_spark_4b) else (
+        min(args.max_seq_len, 1280) if constrained else args.max_seq_len
+    )
+    dpo_seq_len = min(sft_seq_len, 768 if is_spark_4b else 1024) if constrained else sft_seq_len
 
     print("=" * 78)
     print(f" GPU Detected : {gpu_name} ({vram_gb:.1f} GB VRAM, Compute {major_cc}.{minor_cc})")
