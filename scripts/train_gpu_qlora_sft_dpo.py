@@ -126,6 +126,43 @@ def filter_kwargs(cls_or_fn: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if k in sig.parameters}
 
 
+def enforce_amp_safe_dtypes(model: Any, compute_dtype: Any) -> tuple[int, int]:
+    """
+    Ensure PyTorch GradScaler compatibility on Turing FP16 GPUs (e.g. Tesla T4 Compute 7.5):
+      - Every trainable parameter (`requires_grad=True`) is strictly `torch.float32`
+      - Every frozen floating-point parameter & buffer uses `compute_dtype` (eliminates BFloat16 from Qwen config)
+    """
+    import torch
+
+    fp32_trainable = 0
+    cast_frozen = 0
+    for p in model.parameters():
+        if p.requires_grad:
+            if p.dtype != torch.float32:
+                p.data = p.data.to(torch.float32)
+            fp32_trainable += p.numel()
+        elif p.is_floating_point() and p.dtype != compute_dtype:
+            p.data = p.data.to(compute_dtype)
+            cast_frozen += p.numel()
+    for b in model.buffers():
+        if b.is_floating_point() and b.dtype != compute_dtype:
+            b.data = b.data.to(compute_dtype)
+
+    # Walk all config objects (base model + PEFT wrapper) so Trainer/SFTTrainer never sees bfloat16
+    seen_cfgs: set[int] = set()
+    for mod in model.modules():
+        cfg = getattr(mod, "config", None)
+        if cfg is not None and id(cfg) not in seen_cfgs:
+            seen_cfgs.add(id(cfg))
+            for attr in ("torch_dtype", "dtype", "_pre_quantization_dtype"):
+                if hasattr(cfg, attr):
+                    try:
+                        setattr(cfg, attr, compute_dtype)
+                    except Exception:
+                        pass
+    return fp32_trainable, cast_frozen
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="2-Stage QLoRA Agent POV SFT + DPO GPU Trainer")
     parser.add_argument("--base-model", type=str, default="Qwen/Qwen2.5-Coder-3B-Instruct")
@@ -199,11 +236,14 @@ def main() -> None:
 
     model = AutoModelForCausalLM.from_pretrained(args.base_model, **from_pretrained_kwargs)
     model.config.use_cache = False
-    model = prepare_model_for_kbit_training(
-        model,
-        use_gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False},
+    prep_kwargs = filter_kwargs(
+        prepare_model_for_kbit_training,
+        {
+            "use_gradient_checkpointing": True,
+            "gradient_checkpointing_kwargs": {"use_reentrant": False},
+        },
     )
+    model = prepare_model_for_kbit_training(model, **prep_kwargs)
     enforce_amp_safe_dtypes(model, compute_dtype)
 
     peft_config = LoraConfig(
@@ -214,7 +254,8 @@ def main() -> None:
         task_type="CAUSAL_LM",
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     )
-    model = get_peft_model(model, peft_config, autocast_adapter_dtype=False)
+    peft_kwargs = filter_kwargs(get_peft_model, {"autocast_adapter_dtype": False})
+    model = get_peft_model(model, peft_config, **peft_kwargs)
     fp32_params, _ = enforce_amp_safe_dtypes(model, compute_dtype)
     model.print_trainable_parameters()
     print(f"      Verified AMP-safe dtypes: {fp32_params:,} trainable params in FP32 (0 BFloat16 params on T4).")
