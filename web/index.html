@@ -178,7 +178,7 @@ files.download('/content/agent_pov_qwen25_lora.zip')</pre>
       {
         title: "1. List-First ID Discovery",
         prompt: "Check cluster health for `checkout-api` in `staging`.",
-        chosen: "<thought>\nFrom my POV, no `cluster_id` was supplied. I must call `list_clusters` first rather than inventing a placeholder UUID.\n</thought>\n<tool_call>\n{\"name\": \"list_clusters\", \"arguments\": {\"env\": \"staging\"}}\n</tool_call>",
+        chosen: "<thought>\nNo `cluster_id` was supplied. Call `list_clusters` first rather than inventing a placeholder UUID.\n</thought>\n<tool_call>\n{\"name\": \"list_clusters\", \"arguments\": {\"env\": \"staging\"}}\n</tool_call>",
         rejected: "<thought>\nGuess a placeholder cluster_id directly.\n</thought>\n<tool_call>\n{\"name\": \"get_cluster_health\", \"arguments\": {\"cluster_id\": \"00000000-0000-0000-0000-000000000001\"}}\n</tool_call>"
       },
       {

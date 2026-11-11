@@ -126,10 +126,10 @@ def load_persisted_xz_records(glob_pattern: str, limit: int) -> list[dict[str, A
 
 
 def build_sft_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]:
-    """Combine first-person Agent POV trajectories (50%) + 42-track AgentUltra SFT shards (50%)."""
+    """Combine 80% diverse 42-track AgentUltra SFT shards + 20% natural first-person agent reasoning."""
     from training_data.pov_model import synthesize_first_person_pov_trajectory
 
-    pov_count = max_samples // 2
+    pov_count = max_samples // 5
     ultra_count = max_samples - pov_count
 
     examples: list[dict[str, str]] = []
