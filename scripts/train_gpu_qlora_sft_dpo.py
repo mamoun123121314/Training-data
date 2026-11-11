@@ -187,14 +187,24 @@ def main() -> None:
         bnb_4bit_use_double_quant=True,
         bnb_4bit_compute_dtype=compute_dtype,
     )
-    model = AutoModelForCausalLM.from_pretrained(
-        args.base_model,
-        quantization_config=bnb_config,
-        device_map="auto",
-        trust_remote_code=True,
-    )
+    from_pretrained_kwargs: dict[str, Any] = {
+        "quantization_config": bnb_config,
+        "device_map": "auto",
+        "trust_remote_code": True,
+    }
+    if "dtype" in inspect.signature(AutoModelForCausalLM.from_pretrained).parameters:
+        from_pretrained_kwargs["dtype"] = compute_dtype
+    else:
+        from_pretrained_kwargs["torch_dtype"] = compute_dtype
+
+    model = AutoModelForCausalLM.from_pretrained(args.base_model, **from_pretrained_kwargs)
     model.config.use_cache = False
-    model = prepare_model_for_kbit_training(model)
+    model = prepare_model_for_kbit_training(
+        model,
+        use_gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+    )
+    enforce_amp_safe_dtypes(model, compute_dtype)
 
     peft_config = LoraConfig(
         r=args.lora_r,
@@ -204,8 +214,10 @@ def main() -> None:
         task_type="CAUSAL_LM",
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     )
-    model = get_peft_model(model, peft_config)
+    model = get_peft_model(model, peft_config, autocast_adapter_dtype=False)
+    fp32_params, _ = enforce_amp_safe_dtypes(model, compute_dtype)
     model.print_trainable_parameters()
+    print(f"      Verified AMP-safe dtypes: {fp32_params:,} trainable params in FP32 (0 BFloat16 params on T4).")
 
     # Stage 1: Supervised Fine-Tuning (SFT)
     print(f"\n[3/5] Running Stage 1 — QLoRA Supervised Fine-Tuning ({args.sft_steps} steps)...")
