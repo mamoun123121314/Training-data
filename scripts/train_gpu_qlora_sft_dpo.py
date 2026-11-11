@@ -377,14 +377,15 @@ def main() -> None:
     constrained = low_vram_gpu and (is_7b_plus or is_spark_4b)
     sft_batch_size = 1 if constrained else 2
     sft_grad_accum = 8 if sft_batch_size == 1 else 4
-    sft_seq_len = min(args.max_seq_len, 1024) if (low_vram_gpu and is_spark_4b) else (
+    sft_seq_len = min(args.max_seq_len, 512) if (low_vram_gpu and is_spark_4b) else (
         min(args.max_seq_len, 1280) if constrained else args.max_seq_len
     )
-    dpo_seq_len = min(sft_seq_len, 768 if is_spark_4b else 1024) if constrained else sft_seq_len
+    dpo_seq_len = min(sft_seq_len, 512 if is_spark_4b else 1024) if constrained else sft_seq_len
 
     print("=" * 78)
     print(f" GPU Detected : {gpu_name} ({vram_gb:.1f} GB VRAM, Compute {major_cc}.{minor_cc})")
-    print(f" Precision    : {'BF16' if use_bf16 else 'FP16 (Turing T4 safe mode)'} + 4-bit NF4 Double-Quant")
+    quant_mode = "Spark FP16 base (avoids uint8 eager-attention bug)" if is_spark_4b else "4-bit NF4 Double-Quant"
+    print(f" Precision    : {'BF16' if use_bf16 else 'FP16 (Turing T4 safe mode)'} + {quant_mode}")
     print(f" Base Model   : {args.base_model}")
     print(f" Adapter Spec : rsLoRA r={args.lora_r}, alpha={args.lora_r * 2} + NEFTune(alpha=5.0)")
     print(
@@ -403,35 +404,33 @@ def main() -> None:
     sft_val_ds = datasets.Dataset.from_list(val_rows)
     print(f"      Prepared {len(sft_train_ds):,} high-IQ SFT train + {len(sft_val_ds):,} val trajectories.")
 
-    print(f"\n[2/5] Loading `{args.base_model}` in 4-bit NF4 double-quantized QLoRA...")
+    print(
+        f"\n[2/5] Loading `{args.base_model}` "
+        + ("in FP16 (Spark custom attention requires floating-point gate weights)..." if is_spark_4b else "in 4-bit NF4 double-quantized QLoRA...")
+    )
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     stop_ids = get_stop_token_ids(tokenizer)
 
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=compute_dtype,
-    )
+    load_kwargs: dict[str, Any] = {
+        "dtype": compute_dtype,
+        "device_map": "auto",
+        "trust_remote_code": True,
+    }
+    if not is_spark_4b:
+        load_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=compute_dtype,
+        )
     try:
-        model = AutoModelForCausalLM.from_pretrained(
-            args.base_model,
-            quantization_config=bnb_config,
-            dtype=compute_dtype,
-            device_map="auto",
-            trust_remote_code=True,
-        )
+        model = AutoModelForCausalLM.from_pretrained(args.base_model, **load_kwargs)
     except TypeError:
-        model = AutoModelForCausalLM.from_pretrained(
-            args.base_model,
-            quantization_config=bnb_config,
-            torch_dtype=compute_dtype,
-            device_map="auto",
-            trust_remote_code=True,
-        )
+        load_kwargs["torch_dtype"] = load_kwargs.pop("dtype")
+        model = AutoModelForCausalLM.from_pretrained(args.base_model, **load_kwargs)
     model.config.use_cache = False
     prep_kwargs = filter_kwargs(
         prepare_model_for_kbit_training,
