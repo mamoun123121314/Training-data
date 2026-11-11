@@ -141,22 +141,29 @@ def load_persisted_xz_records(glob_pattern: str, limit: int) -> list[dict[str, A
 
 def build_sft_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]:
     """
-    4-Engine High-IQ SFT Curriculum:
-      - 35% Apex Intelligence (relentless tool recovery, solver dry-run CoT, zero-placeholder systems, direct security code)
-      - 35% AgentUltra 42-track multi-turn agent trajectories
-      - 20% BillionUltra 50-category solver-verified coding, SQL, concurrency & CWE reasoning
-      - 10% Natural first-person engineering trajectories
+    5-Engine High-IQ + AppSec Find-and-Fix SFT Curriculum:
+      - 30% AppSec Find-and-Fix (source-to-sink vulnerability audits + CWE root-cause patches, zero false refusals)
+      - 25% Apex Intelligence (relentless tool recovery, solver dry-run CoT, zero-placeholder systems)
+      - 25% AgentUltra 42-track multi-turn agent trajectories
+      - 15% BillionUltra 50-category solver-verified coding, SQL, concurrency & CWE reasoning
+      -  5% Natural first-person engineering trajectories
     """
     from training_data.apex_intelligence import synthesize_apex_sft_trajectory
+    from training_data.appsec_audit_patch import synthesize_appsec_audit_sft
     from training_data.pov_model import synthesize_first_person_pov_trajectory
     from training_data.ultra_billion import BillionUltraDataset
 
-    apex_count = int(max_samples * 0.35)
-    billion_count = int(max_samples * 0.20)
-    pov_count = int(max_samples * 0.10)
-    ultra_count = max_samples - apex_count - billion_count - pov_count
+    appsec_count = int(max_samples * 0.30)
+    apex_count = int(max_samples * 0.25)
+    billion_count = int(max_samples * 0.15)
+    pov_count = max(1, int(max_samples * 0.05))
+    ultra_count = max(0, max_samples - appsec_count - apex_count - billion_count - pov_count)
 
     examples: list[dict[str, str]] = []
+
+    for i in range(appsec_count):
+        rec = synthesize_appsec_audit_sft(i, seed=seed)
+        examples.append({"text": format_chatml_messages(rec["messages"])})
 
     for i in range(apex_count):
         rec = synthesize_apex_sft_trajectory(i, seed=seed)
@@ -190,19 +197,32 @@ def build_sft_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]
 def build_dpo_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]:
     """
     Synthesize modality-balanced TRL `{prompt, chosen, rejected}` strings combining:
-      - 50% Apex Relentless & Zero-Laziness / Zero-False-Refusal DPO pairs
-      - 50% Agent Grounding, Schema Discipline & Prompt-Injection Immunity DPO pairs
+      - 40% AppSec Anti-False-Refusal & Deep Multi-Flaw Patch DPO pairs ("find exploitable bugs & fix")
+      - 30% Apex Relentless & Zero-Laziness DPO pairs
+      - 30% Agent Grounding, Schema Discipline & Prompt-Injection Immunity DPO pairs
     """
     from training_data.agent_dpo import synthesize_agent_dpo_pair
     from training_data.apex_intelligence import synthesize_apex_dpo_pair
+    from training_data.appsec_audit_patch import synthesize_appsec_audit_dpo_pair
     from training_data.schema import build_agent_system, format_tool_call
 
-    apex_half = max_samples // 2
-    agent_half = max_samples - apex_half
+    appsec_part = int(max_samples * 0.40)
+    apex_part = int(max_samples * 0.30)
+    agent_part = max_samples - appsec_part - apex_part
     rng = random.Random(seed)
     out: list[dict[str, str]] = []
 
-    for i in range(apex_half):
+    for i in range(appsec_part):
+        pair = synthesize_appsec_audit_dpo_pair(i, seed=seed)
+        out.append(
+            {
+                "prompt": format_chatml_messages(pair["prompt"], add_generation_prompt=True),
+                "chosen": pair["chosen"][0]["content"].strip(),
+                "rejected": pair["rejected"][0]["content"].strip(),
+            }
+        )
+
+    for i in range(apex_part):
         pair = synthesize_apex_dpo_pair(i, seed=seed)
         out.append(
             {
@@ -213,7 +233,7 @@ def build_dpo_examples(max_samples: int, seed: int = 42) -> list[dict[str, str]]
         )
 
     balanced_taxonomies = (0, 2, 5, 6, 7)
-    for idx in range(agent_half):
+    for idx in range(agent_part):
         if idx % 5 == 4:
             svc = f"payments-svc-{idx}"
             tools = [
@@ -604,12 +624,23 @@ def main() -> None:
             ],
         ),
         (
-            "2. Direct Security Engineering (Zero Preachy Refusal + Complete AST Scanner Code)",
+            "2. AppSec Find-and-Fix Audit (Zero Refusal on 'exploitable' + Fixes CWE-22 Sibling-Prefix Bypass)",
             [
                 {"role": "system", "content": APEX_SYSTEM_DIRECT},
                 {
                     "role": "user",
-                    "content": "Write a complete Python AST static security check `find_eval_exec_lines(source: str) -> list[int]` returning sorted line numbers calling `eval(...)` or `exec(...)`.",
+                    "content": (
+                        "Find every exploitable path-handling flaw in this download helper and rewrite it safely:\n\n"
+                        "```python\n"
+                        "import os\n\n"
+                        "ROOT = '/srv/reports'\n\n"
+                        "def read_report(name: str) -> bytes:\n"
+                        "    p = os.path.abspath(os.path.join(ROOT, name))\n"
+                        "    if not p.startswith(ROOT):\n"
+                        "        raise PermissionError('Denied')\n"
+                        "    return open(p, 'rb').read()\n"
+                        "```"
+                    ),
                 },
             ],
         ),

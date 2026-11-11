@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Apex Closed-Loop Relentless Agent & Self-Verifying Coding Harness.
+Apex Closed-Loop AppSec Find-and-Fix Agent & Self-Verifying Coding Harness.
 
 Features:
   - Zero-Config Backbone Detection: Automatically reads `base_model_name_or_path` from
     `adapter_config.json` so both `Qwen2.5-Coder-7B-Instruct` and `3B` adapters load seamlessly.
-  - 6-Turn Live Sandbox (`--mode agent`): Executes `<tool_call>` requests against an interactive
-    workspace (`read_file`, `search_code`, `list_files`, `edit_file`, `run_tests`, `list_clusters`,
-    `get_cluster_health`) including real Python test verification and obstacle recovery!
+  - Real Local Codebase Mode (`--workspace /path/to/code`): Point your model at any local folder
+    of your own source code to find vulnerabilities, patch files (`edit_file`), and run `pytest`—
+    strictly confined inside that directory via `Path.resolve().is_relative_to(...)`.
+  - Built-in Vulnerable Sandbox (`--workspace` omitted): Includes vulnerable `src/billing/invoices.py`
+    (CWE-89 SQLi + CWE-639 cross-tenant IDOR) and `src/billing/settlement.py` with live test verification!
   - AST & Anti-Laziness Self-Verifier (`--mode code`): Verifies generated Python code via `ast.parse`
     and rejects `# TODO` stubs, automatically running a self-repair pass if needed.
 """
@@ -20,6 +22,7 @@ import json
 from pathlib import Path
 import random
 import re
+import subprocess
 import sys
 from typing import Any
 
@@ -50,6 +53,12 @@ MOCK_FILES: dict[str, str] = {
         "    share = total_cents // recipients\n"
         "    return [share for _ in range(recipients)]\n"
     ),
+    "src/billing/invoices.py": (
+        "def get_invoice_record(cur, caller_tenant_id: str, invoice_id: str) -> dict | None:\n"
+        "    query = f\"SELECT invoice_id, tenant_id, total_cents FROM invoices WHERE invoice_id = '{invoice_id}'\"\n"
+        "    cur.execute(query)\n"
+        "    return cur.fetchone()\n"
+    ),
 }
 
 MOCK_CLUSTERS: dict[str, list[dict[str, str]]] = {
@@ -58,10 +67,50 @@ MOCK_CLUSTERS: dict[str, list[dict[str, str]]] = {
 }
 
 
+class _RecordingCursor:
+    def __init__(self) -> None:
+        self.last_sql: str = ""
+        self.last_params: tuple[Any, ...] | list[Any] | None = None
+
+    def execute(self, sql: str, params: tuple[Any, ...] | list[Any] | None = None) -> None:
+        self.last_sql = sql
+        self.last_params = params
+
+    def fetchone(self) -> dict[str, Any]:
+        return {"invoice_id": "inv-1", "tenant_id": "t-alpha", "total_cents": 4500}
+
+
 def run_sandbox_tests(target: str) -> dict[str, Any]:
-    """Execute deterministic assertions against in-memory MOCK_FILES."""
-    if "settlement" in target:
+    """Execute deterministic functional & AppSec security assertions against in-memory MOCK_FILES."""
+    if "invoice" in target:
         ns: dict[str, Any] = {}
+        try:
+            src = MOCK_FILES["src/billing/invoices.py"]
+            exec(compile(src, "invoices.py", "exec"), ns)  # noqa: S102
+            fn = ns["get_invoice_record"]
+            cur = _RecordingCursor()
+            probe_id = "inv-100' OR '1'='1"
+            fn(cur, "tenant_acme", probe_id)
+            if cur.last_params is None or probe_id in cur.last_sql:
+                return {
+                    "status": "failed",
+                    "passed": 0,
+                    "failed": 2,
+                    "failure": "CWE-89 SQL Injection still present: query is not parameterized.",
+                }
+            if "tenant_acme" not in tuple(cur.last_params) or "tenant_id" not in cur.last_sql.lower():
+                return {
+                    "status": "failed",
+                    "passed": 1,
+                    "failed": 1,
+                    "failure": "CWE-639 IDOR still present: caller_tenant_id is not enforced in WHERE clause.",
+                }
+            return {"status": "passed", "passed": 16, "failed": 0}
+        except Exception as exc:
+            return {"status": "failed", "passed": 0, "failed": 1, "failure": repr(exc)}
+
+    if "settlement" in target:
+        ns = {}
         try:
             exec(compile(MOCK_FILES["src/billing/settlement.py"], "settlement.py", "exec"), ns)  # noqa: S102
             fn = ns["split_settlement_cents"]
@@ -76,10 +125,87 @@ def run_sandbox_tests(target: str) -> dict[str, Any]:
             return {"status": "passed", "passed": 3, "failed": 0}
         except Exception as exc:
             return {"status": "failed", "passed": 0, "failed": 1, "failure": repr(exc)}
+
     return {"status": "passed", "target": target, "passed": 8, "failed": 0}
 
 
-def execute_mock_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def _safe_resolve_in_workspace(ws_root: Path, rel_path: str) -> Path:
+    resolved = (ws_root / rel_path.lstrip("/\\")).resolve()
+    if not resolved.is_relative_to(ws_root):
+        raise PermissionError(f"Path '{rel_path}' escapes workspace '{ws_root}'")
+    return resolved
+
+
+def execute_real_workspace_tool(ws_root: Path, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name == "list_files":
+        sub = str(arguments.get("directory", ""))
+        base = _safe_resolve_in_workspace(ws_root, sub) if sub else ws_root
+        if not base.exists():
+            return {"status": "error", "error": f"Directory '{sub}' not found"}
+        files = sorted(
+            str(p.relative_to(ws_root))
+            for p in base.rglob("*")
+            if p.is_file() and ".git" not in p.parts and "__pycache__" not in p.parts
+        )[:100]
+        return {"status": "ok", "files": files}
+    if name == "search_code":
+        q = str(arguments.get("query", ""))
+        hits = []
+        for p in sorted(ws_root.rglob("*")):
+            if not p.is_file() or ".git" in p.parts or "__pycache__" in p.parts:
+                continue
+            rel = str(p.relative_to(ws_root))
+            try:
+                text = p.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for ln, line in enumerate(text.splitlines(), start=1):
+                if q in line or q in rel:
+                    hits.append({"path": rel, "line": ln, "snippet": line[:200]})
+                    if len(hits) >= 30:
+                        return {"status": "ok", "matches": hits}
+        return {"status": "ok", "matches": hits}
+    if name == "read_file":
+        target = _safe_resolve_in_workspace(ws_root, str(arguments.get("path", "")))
+        if not target.is_file():
+            return {"status": "error", "error": f"FileNotFoundError: '{arguments.get('path')}'"}
+        return {"status": "ok", "path": str(target.relative_to(ws_root)), "content": target.read_text(encoding="utf-8")}
+    if name == "edit_file":
+        target = _safe_resolve_in_workspace(ws_root, str(arguments.get("path", "")))
+        if not target.is_file():
+            return {"status": "error", "error": f"FileNotFoundError: '{arguments.get('path')}'"}
+        cur = target.read_text(encoding="utf-8")
+        old_t = str(arguments.get("old_text", ""))
+        new_t = str(arguments.get("new_text", ""))
+        if old_t and old_t in cur:
+            updated = cur.replace(old_t, new_t, 1)
+            target.write_text(updated, encoding="utf-8")
+            return {"status": "edited", "path": str(target.relative_to(ws_root))}
+        return {"status": "error", "error": "old_text not found; call read_file first."}
+    if name == "run_tests":
+        rel_target = str(arguments.get("target", "."))
+        if rel_target.startswith("-"):
+            return {"status": "error", "error": "Invalid test target"}
+        _safe_resolve_in_workspace(ws_root, rel_target)
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "--", rel_target],
+            cwd=str(ws_root),
+            capture_output=True,
+            text=True,
+            timeout=25.0,
+            check=False,
+        )
+        return {
+            "status": "passed" if proc.returncode == 0 else "failed",
+            "returncode": proc.returncode,
+            "output": (proc.stdout + proc.stderr)[-1200:],
+        }
+    return {"status": "error", "error": f"Unsupported workspace tool '{name}'"}
+
+
+def execute_mock_tool(name: str, arguments: dict[str, Any], ws_root: Path | None = None) -> dict[str, Any]:
+    if ws_root is not None:
+        return execute_real_workspace_tool(ws_root, name, arguments)
     if name == "list_files":
         prefix = arguments.get("directory", "")
         matched = sorted(p for p in MOCK_FILES if p.startswith(prefix))
@@ -160,17 +286,24 @@ def resolve_adapter_and_base(adapter_arg: str, base_arg: str | None) -> tuple[Pa
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Apex 6-Turn Relentless Agent & Self-Verifying Coding Harness")
+    parser = argparse.ArgumentParser(description="Apex AppSec Find-and-Fix Agent & Coding Harness")
     parser.add_argument("--base-model", type=str, default=None, help="Auto-detected from adapter_config.json if omitted")
     parser.add_argument("--adapter-dir", type=str, default="out/qwen25-agent-pov-lora/final_lora_adapter")
     parser.add_argument("--mode", choices=("agent", "code"), default="agent")
+    parser.add_argument("--workspace", type=str, default=None, help="Optional path to a real local code folder to audit & patch")
     parser.add_argument(
         "--prompt",
         type=str,
-        default="Raise `MAX_BURST_TOKENS` in `src/billing/limiter.py` to `300` and run `tests/billing` to verify.",
+        default="Find all exploitable bugs in `src/billing/invoices.py`, patch the code directly, and run `tests/security/invoices` to verify.",
     )
     parser.add_argument("--max-turns", type=int, default=6)
     args = parser.parse_args()
+
+    ws_root: Path | None = None
+    if args.workspace:
+        ws_root = Path(args.workspace).resolve()
+        if not ws_root.is_dir():
+            raise SystemExit(f"--workspace directory does not exist: {ws_root}")
 
     from peft import PeftModel
     import torch
@@ -193,6 +326,7 @@ def main() -> None:
     print("=" * 76)
     print(f" Base Model  : {base_model_id}")
     print(f" Adapter Dir : {adapter_path}")
+    print(f" Workspace   : {ws_root if ws_root else 'Built-in AppSec Sandbox (MOCK_FILES)'}")
     print(f" Mode        : {args.mode.upper()} (Closed-Loop Self-Verification Active)")
     print("=" * 76)
 
@@ -216,7 +350,7 @@ def main() -> None:
     model = PeftModel.from_pretrained(base, str(adapter_path))
     model.eval()
 
-    def generate_turn(msgs: list[dict[str, str]], max_new_tokens: int = 384) -> str:
+    def generate_turn(msgs: list[dict[str, str]], max_new_tokens: int = 420) -> str:
         prompt_str = format_chatml(msgs)
         inputs = tokenizer(prompt_str, return_tensors="pt").to(model.device)
         with torch.no_grad():
@@ -283,14 +417,14 @@ def main() -> None:
     last_tool_failed = False
 
     for turn in range(1, args.max_turns + 1):
-        reply = generate_turn(messages, max_new_tokens=280)
+        reply = generate_turn(messages, max_new_tokens=320)
         print(f"\n[Agent Turn {turn}]\n{reply}")
         messages.append({"role": "assistant", "content": reply})
 
         match = tc_re.search(reply)
         if not match:
             if last_tool_failed and turn < args.max_turns:
-                nudge = {"status": "verifier_notice", "message": "Previous tool returned an error/failure. Use search_code, list_files, or read_file to resolve it and complete the task."}
+                nudge = {"status": "verifier_notice", "message": "Previous tool returned an error/failure. Inspect the error, fix the root cause, and re-run verification."}
                 print(f"\n[Closed-Loop Verifier -> {json.dumps(nudge)}]")
                 messages.append({"role": "tool", "content": json.dumps(nudge)})
                 last_tool_failed = False
@@ -299,7 +433,7 @@ def main() -> None:
 
         try:
             call_obj = json.loads(match.group(1))
-            obs = execute_mock_tool(call_obj.get("name", ""), call_obj.get("arguments", {}))
+            obs = execute_mock_tool(call_obj.get("name", ""), call_obj.get("arguments", {}), ws_root=ws_root)
         except Exception as exc:
             obs = {"status": "error", "error": f"Invalid tool_call JSON: {exc}"}
 

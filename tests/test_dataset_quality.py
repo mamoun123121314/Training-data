@@ -173,6 +173,7 @@ class TestDatasetQuality(unittest.TestCase):
         import ast
         import re
         from training_data.apex_intelligence import synthesize_apex_dpo_pair, synthesize_apex_sft_trajectory
+        from training_data.appsec_audit_patch import synthesize_appsec_audit_dpo_pair, synthesize_appsec_audit_sft
 
         for i in range(36):
             rec = synthesize_apex_sft_trajectory(i, seed=42)
@@ -184,13 +185,24 @@ class TestDatasetQuality(unittest.TestCase):
                     for blk in re.findall(r"```python\s*(.*?)```", msg["content"], flags=re.DOTALL):
                         ast.parse(blk)
 
+        for i in range(24):
+            rec = synthesize_appsec_audit_sft(i, seed=42)
+            self.assertGreaterEqual(len(rec["messages"]), 3)
+            for msg in rec["messages"]:
+                if msg["role"] == "assistant":
+                    self.assertNotIn("I cannot", msg["content"])
+                    self.assertNotIn("I'm sorry", msg["content"])
+                    for blk in re.findall(r"```python\s*(.*?)```", msg["content"], flags=re.DOTALL):
+                        ast.parse(blk)
+
         for j in range(16):
-            pair = synthesize_apex_dpo_pair(j, seed=42)
-            chosen_txt = pair["chosen"][0]["content"]
-            self.assertIn("<thought>", chosen_txt)
-            self.assertNotIn("# TODO", chosen_txt)
-            for blk in re.findall(r"```python\s*(.*?)```", chosen_txt, flags=re.DOTALL):
-                ast.parse(blk)
+            for pair in (synthesize_apex_dpo_pair(j, seed=42), synthesize_appsec_audit_dpo_pair(j, seed=42)):
+                chosen_txt = pair["chosen"][0]["content"]
+                self.assertIn("<thought>", chosen_txt)
+                self.assertNotIn("# TODO", chosen_txt)
+                self.assertNotIn("I'm sorry, I cannot", chosen_txt)
+                for blk in re.findall(r"```python\s*(.*?)```", chosen_txt, flags=re.DOTALL):
+                    ast.parse(blk)
 
         import sys
         from pathlib import Path
