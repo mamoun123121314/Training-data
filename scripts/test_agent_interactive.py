@@ -91,12 +91,19 @@ def run_sandbox_tests(target: str) -> dict[str, Any]:
             cur = _RecordingCursor()
             probe_id = "inv-100' OR '1'='1"
             fn(cur, "tenant_acme", probe_id)
-            if cur.last_params is None or probe_id in cur.last_sql:
+            if probe_id in cur.last_sql:
                 return {
                     "status": "failed",
                     "passed": 0,
                     "failed": 2,
-                    "failure": "CWE-89 SQL Injection still present: query is not parameterized.",
+                    "failure": "CWE-89 remains: invoice_id is interpolated into SQL; bind it as a query parameter.",
+                }
+            if cur.last_params is None:
+                return {
+                    "status": "failed",
+                    "passed": 1,
+                    "failed": 1,
+                    "failure": "SQL has placeholders but cur.execute was not given parameters. Use cur.execute(query, (invoice_id, caller_tenant_id)).",
                 }
             if "tenant_acme" not in tuple(cur.last_params) or "tenant_id" not in cur.last_sql.lower():
                 return {
@@ -410,7 +417,7 @@ def main() -> None:
         {"name": "read_file", "description": "Read exact file contents.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
         {"name": "search_code", "description": "Search repository files for a symbol or filename.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
         {"name": "list_files", "description": "List files under a directory prefix.", "parameters": {"type": "object", "properties": {"directory": {"type": "string"}}, "required": ["directory"]}},
-        {"name": "edit_file", "description": "Replace exact old_text with new_text.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
+        {"name": "edit_file", "description": "Replace exact old_text with new_text. Prefer one short unique line or block per call; after editing, read back the file and run the requested tests.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
         {"name": "run_tests", "description": "Run pytest suite and return pass/fail status.", "parameters": {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]}},
         {"name": "list_clusters", "description": "List cluster IDs in an environment.", "parameters": {"type": "object", "properties": {"env": {"type": "string"}}, "required": ["env"]}},
         {"name": "get_cluster_health", "description": "Fetch cluster health by exact cluster_id.", "parameters": {"type": "object", "properties": {"cluster_id": {"type": "string"}}, "required": ["cluster_id"]}},
