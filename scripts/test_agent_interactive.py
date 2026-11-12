@@ -373,39 +373,41 @@ def _decode_tool_arg_string(raw_value: str) -> str:
 
 
 def parse_tool_call_payload(raw: str) -> dict[str, Any]:
-    """Parse tool-call JSON; recover edit_file arguments with unescaped source-code quotes."""
+    """Parse tool-call JSON and recover malformed edit_file code strings conservatively."""
     try:
         parsed = json.loads(raw)
         if isinstance(parsed, dict):
             return parsed
         raise ValueError("Tool-call payload must be an object")
     except json.JSONDecodeError as original_error:
-        if '"edit_file"' not in raw:
+        if "edit_file" not in raw:
             raise original_error
 
+        def locate_value(key: str) -> int:
+            key_pattern = r"\\?\"" + re.escape(key) + r"\\?\"\s*:\s*\\?\""
+            found = re.search(key_pattern, raw)
+            if found is None:
+                raise ValueError(f"Could not locate the {key} field while repairing edit_file JSON.") from original_error
+            return found.end()
+
         def extract(key: str, next_key: str | None = None) -> str:
-            marker = f'"{key}"'
-            key_pos = raw.find(marker)
-            if key_pos < 0:
-                raise original_error
-            colon = raw.find(":", key_pos + len(marker))
-            value_start = raw.find('"', colon + 1)
-            if colon < 0 or value_start < 0:
-                raise original_error
-            value_start += 1
+            value_start = locate_value(key)
             if next_key:
-                pattern = r',\s*"' + re.escape(next_key) + r'"\s*:'
-                boundary = re.search(pattern, raw[value_start:])
+                boundary_pattern = r",\s*\\?\"" + re.escape(next_key) + r"\\?\"\s*:"
+                boundary = re.search(boundary_pattern, raw[value_start:])
                 if boundary is None:
-                    raise original_error
+                    raise ValueError(f"Could not locate the {next_key} boundary while repairing edit_file JSON.") from original_error
                 value_end = value_start + boundary.start()
-                if raw[value_end - 1] == '"':
+                while value_end > value_start and raw[value_end - 1].isspace():
+                    value_end -= 1
+                if value_end > value_start and raw[value_end - 1] == '"':
                     value_end -= 1
             else:
                 stripped = raw.rstrip()
-                if not stripped.endswith("}}"):
-                    raise original_error
-                value_end = len(stripped) - 3
+                closing = stripped.rfind("}}")
+                if closing < 0:
+                    raise ValueError("Could not locate the end of edit_file arguments.") from original_error
+                value_end = closing - 1 if closing > value_start and stripped[closing - 1] == '"' else closing
             return _decode_tool_arg_string(raw[value_start:value_end])
 
         return {
@@ -416,7 +418,6 @@ def parse_tool_call_payload(raw: str) -> dict[str, Any]:
                 "new_text": extract("new_text"),
             },
         }
-
 
 def format_chatml(messages: list[dict[str, str]]) -> str:
     out: list[str] = []
