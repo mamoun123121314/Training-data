@@ -256,6 +256,82 @@ def execute_mock_tool(name: str, arguments: dict[str, Any], ws_root: Path | None
     return {"status": "ok", "tool": name, "echo": arguments}
 
 
+def _decode_tool_arg_string(raw_value: str) -> str:
+    """Decode a JSON string, repairing unescaped quotes/newlines in generated code arguments."""
+    try:
+        return json.loads('"' + raw_value + '"')
+    except json.JSONDecodeError:
+        bs = chr(92)
+        repaired: list[str] = []
+        i = 0
+        while i < len(raw_value):
+            ch = raw_value[i]
+            if ch == bs and i + 1 < len(raw_value):
+                nxt = raw_value[i + 1]
+                if nxt in '"' + bs + "/bfnrtu":
+                    repaired.extend((ch, nxt))
+                else:
+                    repaired.extend((bs + bs, nxt))
+                i += 2
+                continue
+            if ch == '"':
+                repaired.append(bs + '"')
+            elif ch == "\n":
+                repaired.append(bs + "n")
+            elif ch == "\r":
+                repaired.append(bs + "r")
+            else:
+                repaired.append(ch)
+            i += 1
+        return json.loads('"' + "".join(repaired) + '"')
+
+
+def parse_tool_call_payload(raw: str) -> dict[str, Any]:
+    """Parse tool-call JSON; recover edit_file arguments with unescaped source-code quotes."""
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
+        raise ValueError("Tool-call payload must be an object")
+    except json.JSONDecodeError as original_error:
+        if '"edit_file"' not in raw:
+            raise original_error
+
+        def extract(key: str, next_key: str | None = None) -> str:
+            marker = f'"{key}"'
+            key_pos = raw.find(marker)
+            if key_pos < 0:
+                raise original_error
+            colon = raw.find(":", key_pos + len(marker))
+            value_start = raw.find('"', colon + 1)
+            if colon < 0 or value_start < 0:
+                raise original_error
+            value_start += 1
+            if next_key:
+                pattern = r',\s*"' + re.escape(next_key) + r'"\s*:'
+                boundary = re.search(pattern, raw[value_start:])
+                if boundary is None:
+                    raise original_error
+                value_end = value_start + boundary.start()
+                if raw[value_end - 1] == '"':
+                    value_end -= 1
+            else:
+                stripped = raw.rstrip()
+                if not stripped.endswith("}}"):
+                    raise original_error
+                value_end = len(stripped) - 3
+            return _decode_tool_arg_string(raw[value_start:value_end])
+
+        return {
+            "name": "edit_file",
+            "arguments": {
+                "path": extract("path", "old_text"),
+                "old_text": extract("old_text", "new_text"),
+                "new_text": extract("new_text"),
+            },
+        }
+
+
 def format_chatml(messages: list[dict[str, str]]) -> str:
     out: list[str] = []
     for m in messages:
@@ -456,7 +532,7 @@ def main() -> None:
             break
 
         try:
-            call_obj = json.loads(match.group(1))
+            call_obj = parse_tool_call_payload(match.group(1))
             obs = execute_mock_tool(call_obj.get("name", ""), call_obj.get("arguments", {}), ws_root=ws_root)
         except Exception as exc:
             obs = {"status": "error", "error": f"Invalid tool_call JSON: {exc}"}
