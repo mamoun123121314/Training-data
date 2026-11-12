@@ -7,7 +7,12 @@ import unittest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from test_agent_interactive import parse_tool_call_payload  # noqa: E402
+from test_agent_interactive import (  # noqa: E402
+    MOCK_FILES,
+    execute_mock_tool,
+    parse_tool_call_payload,
+    run_sandbox_tests,
+)
 
 
 class TestToolCallJsonRecovery(unittest.TestCase):
@@ -22,6 +27,15 @@ class TestToolCallJsonRecovery(unittest.TestCase):
         self.assertIn("\n    cur.execute(query)", args["old_text"])
         self.assertIn("AND tenant_id = ?", args["new_text"])
         self.assertIn("(invoice_id, caller_tenant_id)", args["new_text"])
+
+        path = "src/billing/invoices.py"
+        original = MOCK_FILES[path]
+        try:
+            edited = execute_mock_tool("edit_file", args)
+            self.assertEqual(edited["status"], "edited", edited)
+            self.assertEqual(run_sandbox_tests("tests/security/invoices"), {"status": "passed", "checks": "static_ast", "passed": 9, "failed": 0})
+        finally:
+            MOCK_FILES[path] = original
 
 
 if __name__ == "__main__":

@@ -67,78 +67,104 @@ MOCK_CLUSTERS: dict[str, list[dict[str, str]]] = {
 }
 
 
-class _RecordingCursor:
-    def __init__(self) -> None:
-        self.last_sql: str = ""
-        self.last_params: tuple[Any, ...] | list[Any] | None = None
-
-    def execute(self, sql: str, params: tuple[Any, ...] | list[Any] | None = None) -> None:
-        self.last_sql = sql
-        self.last_params = params
-
-    def fetchone(self) -> dict[str, Any]:
-        return {"invoice_id": "inv-1", "tenant_id": "t-alpha", "total_cents": 4500}
-
-
 def run_sandbox_tests(target: str) -> dict[str, Any]:
-    """Execute deterministic functional & AppSec security assertions against in-memory MOCK_FILES."""
-    if "invoice" in target:
-        ns: dict[str, Any] = {}
+    """Run nine AST-only invoice checks; never execute model-generated source."""
+    normalized_target = target.replace("\\", "/").strip("/")
+    if normalized_target not in {"tests/security/invoices", "tests/security/invoices.py"}:
+        return {
+            "status": "error",
+            "target": target,
+            "error": "No such built-in sandbox test target. Supported targets: tests/security/invoices and tests/security/invoices.py.",
+        }
+
+    try:
+        tree = ast.parse(MOCK_FILES["src/billing/invoices.py"], filename="invoices.py")
+    except SyntaxError as exc:
+        return {"status": "failed", "passed": 0, "failed": 1, "failure": f"Python syntax error: {exc}"}
+
+    fn = next(
+        (node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "get_invoice_record"),
+        None,
+    )
+    if fn is None:
+        return {"status": "failed", "passed": 0, "failed": 2, "failure": "get_invoice_record function is missing."}
+
+    query_node = None
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "query" for t in node.targets):
+            query_node = node.value
+            break
+    if isinstance(query_node, ast.JoinedStr):
+        if any(isinstance(value, ast.FormattedValue) for value in query_node.values):
+            return {
+                "status": "failed",
+                "passed": 0,
+                "failed": 2,
+                "failure": (
+                    "CWE-89 remains: invoice_id is interpolated in an f-string. Use a constant SQL string with "
+                    "placeholders for invoice_id and tenant_id, then bind (invoice_id, caller_tenant_id)."
+                ),
+            }
+        query = "".join(value.value for value in query_node.values if isinstance(value, ast.Constant) and isinstance(value.value, str))
+    else:
         try:
-            src = MOCK_FILES["src/billing/invoices.py"]
-            exec(compile(src, "invoices.py", "exec"), ns)  # noqa: S102
-            fn = ns["get_invoice_record"]
-            cur = _RecordingCursor()
-            probe_id = "inv-100' OR '1'='1"
-            fn(cur, "tenant_acme", probe_id)
-            if probe_id in cur.last_sql or "'{invoice_id}'" in cur.last_sql:
-                return {
-                    "status": "failed",
-                    "passed": 0,
-                    "failed": 2,
-                    "failure": (
-                        "CWE-89 remains: invoice_id is still interpolated in the SQL string. Replace the exact "
-                        "'{invoice_id}' interpolation with '? AND tenant_id = ?', then call "
-                        "cur.execute(query, (invoice_id, caller_tenant_id)) in that placeholder order."
-                    ),
-                }
-            if cur.last_params is None:
-                return {
-                    "status": "failed",
-                    "passed": 1,
-                    "failed": 1,
-                    "failure": "SQL has placeholders but cur.execute was not given parameters. Use cur.execute(query, (invoice_id, caller_tenant_id)).",
-                }
-            if "tenant_acme" not in tuple(cur.last_params) or "tenant_id" not in cur.last_sql.lower():
-                return {
-                    "status": "failed",
-                    "passed": 1,
-                    "failed": 1,
-                    "failure": "CWE-639 IDOR still present: caller_tenant_id is not enforced in WHERE clause.",
-                }
-            return {"status": "passed", "passed": 16, "failed": 0}
-        except Exception as exc:
-            return {"status": "failed", "passed": 0, "failed": 1, "failure": repr(exc)}
+            query = ast.literal_eval(query_node) if query_node is not None else None
+        except (ValueError, TypeError):
+            query = None
+    if (
+        not isinstance(query, str)
+        or query.count("?") != 2
+        or re.search(r"\binvoice_id\s*=\s*\?", query, flags=re.IGNORECASE) is None
+        or re.search(r"\btenant_id\s*=\s*\?", query, flags=re.IGNORECASE) is None
+    ):
+        return {
+            "status": "failed",
+            "passed": 0,
+            "failed": 2,
+            "failure": "Use a constant parameterized query with invoice_id = ? AND tenant_id = ?.",
+        }
+    if "tenant_id" not in query.lower():
+        return {
+            "status": "failed",
+            "passed": 1,
+            "failed": 1,
+            "failure": "CWE-639 remains: include tenant_id in the WHERE clause and bind caller_tenant_id.",
+        }
 
-    if "settlement" in target:
-        ns = {}
-        try:
-            exec(compile(MOCK_FILES["src/billing/settlement.py"], "settlement.py", "exec"), ns)  # noqa: S102
-            fn = ns["split_settlement_cents"]
-            res = fn(100, 3)
-            if sum(res) != 100 or len(res) != 3:
-                return {
-                    "status": "failed",
-                    "passed": 2,
-                    "failed": 1,
-                    "failure": f"AssertionError: sum(split_settlement_cents(100, 3)) == {sum(res)} != 100 (got {res})",
-                }
-            return {"status": "passed", "passed": 3, "failed": 0}
-        except Exception as exc:
-            return {"status": "failed", "passed": 0, "failed": 1, "failure": repr(exc)}
-
-    return {"status": "passed", "target": target, "passed": 8, "failed": 0}
-
+    execute = next(
+        (
+            node for node in ast.walk(fn)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "cur"
+            and node.func.attr == "execute"
+        ),
+        None,
+    )
+    if (
+        execute is None
+        or len(execute.args) != 2
+        or not isinstance(execute.args[0], ast.Name)
+        or execute.args[0].id != "query"
+    ):
+        return {
+            "status": "failed",
+            "passed": 1,
+            "failed": 1,
+            "failure": "SQL has placeholders but cur.execute must bind (invoice_id, caller_tenant_id).",
+        }
+    params = execute.args[1]
+    if not isinstance(params, (ast.Tuple, ast.List)) or [
+        elt.id if isinstance(elt, ast.Name) else None for elt in params.elts
+    ] != ["invoice_id", "caller_tenant_id"]:
+        return {
+            "status": "failed",
+            "passed": 1,
+            "failed": 1,
+            "failure": "Bind values in placeholder order: (invoice_id, caller_tenant_id).",
+        }
+    return {"status": "passed", "checks": "static_ast", "passed": 9, "failed": 0}
 
 def _safe_resolve_in_workspace(ws_root: Path, rel_path: str) -> Path:
     resolved = (ws_root / rel_path.lstrip("/\\")).resolve()
@@ -147,29 +173,73 @@ def _safe_resolve_in_workspace(ws_root: Path, rel_path: str) -> Path:
     return resolved
 
 
-def execute_real_workspace_tool(ws_root: Path, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def apply_exact_or_indented_edit(content: str, old_text: str, new_text: str) -> str | None:
+    """Apply exact text or a unique line-block match differing only by indentation."""
+    if old_text and old_text in content:
+        return content.replace(old_text, new_text, 1)
+    old_lines = old_text.splitlines()
+    new_lines = new_text.splitlines()
+    source_lines = content.splitlines()
+    if not old_lines or len(old_lines) != len(new_lines):
+        return None
+
+    matches = [
+        start
+        for start in range(len(source_lines) - len(old_lines) + 1)
+        if all(source_lines[start + i].strip() == old_lines[i].strip() for i in range(len(old_lines)))
+    ]
+    if len(matches) != 1:
+        return None
+
+    start = matches[0]
+    aligned: list[str] = []
+    for offset, replacement in enumerate(new_lines):
+        source = source_lines[start + offset]
+        old_indent = len(old_lines[offset]) - len(old_lines[offset].lstrip(" \t"))
+        source_indent = len(source) - len(source.lstrip(" \t"))
+        new_indent = len(replacement) - len(replacement.lstrip(" \t"))
+        base_indent = max(0, source_indent - old_indent)
+        aligned.append(source[:base_indent] + replacement)
+    result_lines = source_lines[:start] + aligned + source_lines[start + len(old_lines):]
+    result = "\n".join(result_lines)
+    if content.endswith("\n"):
+        result += "\n"
+    return result
+
+def execute_real_workspace_tool(
+    ws_root: Path, name: str, arguments: dict[str, Any], allow_test_execution: bool = False
+) -> dict[str, Any]:
     if name == "list_files":
         sub = str(arguments.get("directory", ""))
         base = _safe_resolve_in_workspace(ws_root, sub) if sub else ws_root
         if not base.exists():
             return {"status": "error", "error": f"Directory '{sub}' not found"}
-        files = sorted(
-            str(p.relative_to(ws_root))
-            for p in base.rglob("*")
-            if p.is_file() and ".git" not in p.parts and "__pycache__" not in p.parts
-        )[:100]
-        return {"status": "ok", "files": files}
+        files: list[str] = []
+        for p in base.rglob("*"):
+            if not p.is_file() or ".git" in p.parts or "__pycache__" in p.parts:
+                continue
+            try:
+                resolved = p.resolve(strict=True)
+                if not resolved.is_relative_to(ws_root):
+                    continue
+                files.append(str(p.relative_to(ws_root)))
+            except (OSError, RuntimeError):
+                continue
+        return {"status": "ok", "files": sorted(files)[:100]}
     if name == "search_code":
         q = str(arguments.get("query", ""))
         hits = []
         for p in sorted(ws_root.rglob("*")):
             if not p.is_file() or ".git" in p.parts or "__pycache__" in p.parts:
                 continue
-            rel = str(p.relative_to(ws_root))
             try:
-                text = p.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
+                resolved = p.resolve(strict=True)
+                if not resolved.is_relative_to(ws_root):
+                    continue
+                text = resolved.read_text(encoding="utf-8", errors="ignore")
+            except (OSError, RuntimeError):
                 continue
+            rel = str(p.relative_to(ws_root))
             for ln, line in enumerate(text.splitlines(), start=1):
                 if q in line or q in rel:
                     hits.append({"path": rel, "line": ln, "snippet": line[:200]})
@@ -188,12 +258,17 @@ def execute_real_workspace_tool(ws_root: Path, name: str, arguments: dict[str, A
         cur = target.read_text(encoding="utf-8")
         old_t = str(arguments.get("old_text", ""))
         new_t = str(arguments.get("new_text", ""))
-        if old_t and old_t in cur:
-            updated = cur.replace(old_t, new_t, 1)
+        updated = apply_exact_or_indented_edit(cur, old_t, new_t)
+        if updated is not None:
             target.write_text(updated, encoding="utf-8")
             return {"status": "edited", "path": str(target.relative_to(ws_root))}
-        return {"status": "error", "error": "old_text not found; call read_file first."}
+        return {"status": "error", "error": "old_text was not a unique exact or indentation-only match; read the file and retry."}
     if name == "run_tests":
+        if not allow_test_execution:
+            return {
+                "status": "error",
+                "error": "Running project tests executes code from the workspace. Re-run with --allow-test-execution only if you trust this codebase.",
+            }
         rel_target = str(arguments.get("target", "."))
         if rel_target.startswith("-"):
             return {"status": "error", "error": "Invalid test target"}
@@ -214,9 +289,14 @@ def execute_real_workspace_tool(ws_root: Path, name: str, arguments: dict[str, A
     return {"status": "error", "error": f"Unsupported workspace tool '{name}'"}
 
 
-def execute_mock_tool(name: str, arguments: dict[str, Any], ws_root: Path | None = None) -> dict[str, Any]:
+def execute_mock_tool(
+    name: str,
+    arguments: dict[str, Any],
+    ws_root: Path | None = None,
+    allow_test_execution: bool = False,
+) -> dict[str, Any]:
     if ws_root is not None:
-        return execute_real_workspace_tool(ws_root, name, arguments)
+        return execute_real_workspace_tool(ws_root, name, arguments, allow_test_execution=allow_test_execution)
     if name == "list_files":
         prefix = arguments.get("directory", "")
         matched = sorted(p for p in MOCK_FILES if p.startswith(prefix))
@@ -233,6 +313,11 @@ def execute_mock_tool(name: str, arguments: dict[str, Any], ws_root: Path | None
         p = arguments.get("path", "")
         if p in MOCK_FILES:
             return {"status": "ok", "path": p, "content": MOCK_FILES[p]}
+        if str(p).startswith("tests/"):
+            return {
+                "status": "error",
+                "error": "The in-memory sandbox exposes no test files; call run_tests with target tests/security/invoices.",
+            }
         return {"status": "error", "error": f"FileNotFoundError: '{p}' does not exist"}
     if name == "edit_file":
         p = arguments.get("path", "")
@@ -241,10 +326,11 @@ def execute_mock_tool(name: str, arguments: dict[str, Any], ws_root: Path | None
         if p not in MOCK_FILES:
             return {"status": "error", "error": f"FileNotFoundError: '{p}' does not exist"}
         cur = MOCK_FILES[p]
-        if old_t and old_t in cur:
-            MOCK_FILES[p] = cur.replace(old_t, new_t, 1)
-            return {"status": "edited", "path": p, "updated_content": MOCK_FILES[p]}
-        return {"status": "error", "error": f"old_text not found in {p}; call read_file first."}
+        updated = apply_exact_or_indented_edit(cur, str(old_t), str(new_t))
+        if updated is not None:
+            MOCK_FILES[p] = updated
+            return {"status": "edited", "path": p}
+        return {"status": "error", "error": f"old_text was not a unique exact or indentation-only match in {p}; call read_file first."}
     if name == "run_tests":
         return run_sandbox_tests(str(arguments.get("target", "tests")))
     if name == "list_clusters":
@@ -383,6 +469,11 @@ def main() -> None:
     parser.add_argument("--mode", choices=("agent", "code"), default="agent")
     parser.add_argument("--workspace", type=str, default=None, help="Optional path to a real local code folder to audit & patch")
     parser.add_argument(
+        "--allow-test-execution",
+        action="store_true",
+        help="Allow pytest to execute code in --workspace; use only for a trusted project.",
+    )
+    parser.add_argument(
         "--prompt",
         type=str,
         default="Find all exploitable bugs in `src/billing/invoices.py`, patch the code directly, and run `tests/security/invoices` to verify.",
@@ -420,6 +511,10 @@ def main() -> None:
     print(f" Base Dtype  : {compute_dtype} {'(unquantized for Spark attention compatibility)' if is_spark_base else '(4-bit NF4)'}")
     print(f" Adapter Dir : {adapter_path}")
     print(f" Workspace   : {ws_root if ws_root else 'Built-in AppSec Sandbox (MOCK_FILES)'}")
+    if ws_root is None:
+        print(" Sandbox     : In-memory only; AST-based invoice assertions; edits reset on exit; no generated code executed")
+    else:
+        print(f" Test Exec   : {'enabled (trusted workspace)' if args.allow_test_execution else 'disabled (pass --allow-test-execution to opt in)'}")
     print(f" Mode        : {args.mode.upper()} (Closed-Loop Self-Verification Active)")
     print("=" * 76)
 
@@ -498,7 +593,7 @@ def main() -> None:
         {"name": "search_code", "description": "Search repository files for a symbol or filename.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
         {"name": "list_files", "description": "List files under a directory prefix.", "parameters": {"type": "object", "properties": {"directory": {"type": "string"}}, "required": ["directory"]}},
         {"name": "edit_file", "description": "Replace exact old_text with new_text. Prefer one short unique line or block per call; after editing, read back the file and run the requested tests.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
-        {"name": "run_tests", "description": "Run pytest suite and return pass/fail status.", "parameters": {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]}},
+        {"name": "run_tests", "description": "Run the built-in static invoice checks, or pytest in --workspace only when --allow-test-execution is enabled.", "parameters": {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]}},
         {"name": "list_clusters", "description": "List cluster IDs in an environment.", "parameters": {"type": "object", "properties": {"env": {"type": "string"}}, "required": ["env"]}},
         {"name": "get_cluster_health", "description": "Fetch cluster health by exact cluster_id.", "parameters": {"type": "object", "properties": {"cluster_id": {"type": "string"}}, "required": ["cluster_id"]}},
     ]
@@ -533,7 +628,12 @@ def main() -> None:
 
         try:
             call_obj = parse_tool_call_payload(match.group(1))
-            obs = execute_mock_tool(call_obj.get("name", ""), call_obj.get("arguments", {}), ws_root=ws_root)
+            obs = execute_mock_tool(
+                call_obj.get("name", ""),
+                call_obj.get("arguments", {}),
+                ws_root=ws_root,
+                allow_test_execution=args.allow_test_execution,
+            )
         except Exception as exc:
             obs = {"status": "error", "error": f"Invalid tool_call JSON: {exc}"}
 
