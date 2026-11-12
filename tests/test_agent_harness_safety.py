@@ -67,6 +67,37 @@ class TestAgentHarnessSafety(unittest.TestCase):
             )
             self.assertEqual(result["matches"], [])
 
+    def test_mock_edit_returns_hash_receipt_for_verified_write(self) -> None:
+        path = "src/billing/invoices.py"
+        original = harness.MOCK_FILES[path]
+        try:
+            result = harness.execute_mock_tool(
+                "edit_file",
+                {"path": path, "old_text": "cur.execute(query)", "new_text": "cur.execute(query, ())"},
+            )
+            self.assertEqual(result["status"], "edited")
+            self.assertTrue(result["verified"])
+            self.assertEqual(len(result["before_sha256"]), 64)
+            self.assertEqual(len(result["after_sha256"]), 64)
+            self.assertNotEqual(result["before_sha256"], result["after_sha256"])
+            self.assertIn("cur.execute(query, ())", harness.MOCK_FILES[path])
+        finally:
+            harness.MOCK_FILES[path] = original
+
+    def test_real_workspace_edit_is_read_back_and_hash_receipted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            target = root / "module.py"
+            target.write_text("value = 1\\n", encoding="utf-8")
+            result = harness.execute_real_workspace_tool(
+                root, "edit_file", {"path": "module.py", "old_text": "value = 1", "new_text": "value = 2"}
+            )
+            self.assertEqual(result["status"], "edited")
+            self.assertTrue(result["verified"])
+            self.assertEqual(target.read_text(encoding="utf-8"), "value = 2\\n")
+            self.assertEqual(len(result["before_sha256"]), 64)
+            self.assertEqual(len(result["after_sha256"]), 64)
+
     def test_real_workspace_test_execution_requires_opt_in(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             result = harness.execute_real_workspace_tool(
