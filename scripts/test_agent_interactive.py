@@ -320,6 +320,7 @@ def main() -> None:
     compute_dtype = (
         torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] >= 8) else torch.float16
     )
+    is_spark_base = "spark-x2.6-4b" in base_model_id.lower()
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
@@ -329,6 +330,7 @@ def main() -> None:
 
     print("=" * 76)
     print(f" Base Model  : {base_model_id}")
+    print(f" Base Dtype  : {compute_dtype} {'(unquantized for Spark attention compatibility)' if is_spark_base else '(4-bit NF4)'}")
     print(f" Adapter Dir : {adapter_path}")
     print(f" Workspace   : {ws_root if ws_root else 'Built-in AppSec Sandbox (MOCK_FILES)'}")
     print(f" Mode        : {args.mode.upper()} (Closed-Loop Self-Verification Active)")
@@ -343,14 +345,15 @@ def main() -> None:
         if isinstance(tid, int) and tid >= 0 and tid not in stop_ids:
             stop_ids.append(tid)
 
-    try:
-        base = AutoModelForCausalLM.from_pretrained(
-            base_model_id, quantization_config=bnb_config, dtype=compute_dtype, device_map="auto", trust_remote_code=True
-        )
-    except TypeError:
-        base = AutoModelForCausalLM.from_pretrained(
-            base_model_id, quantization_config=bnb_config, torch_dtype=compute_dtype, device_map="auto", trust_remote_code=True
-        )
+    base_kwargs: dict[str, Any] = {
+        "torch_dtype": compute_dtype,
+        "device_map": "auto",
+        "trust_remote_code": True,
+    }
+    if not is_spark_base:
+        base_kwargs["quantization_config"] = bnb_config
+    base = AutoModelForCausalLM.from_pretrained(base_model_id, **base_kwargs)
+    base.config.use_cache = True
     model = PeftModel.from_pretrained(base, str(adapter_path))
     model.eval()
 
